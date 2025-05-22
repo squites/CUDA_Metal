@@ -1,4 +1,4 @@
-from lark import Lark, Transformer
+from lark import Lark, Transformer, Token
 #from parser import tree
 from dataclasses import dataclass
 from typing import Union, List, Optional
@@ -83,48 +83,52 @@ class CUDA_AST(Transformer):
     def declaration(self, items):
         type, name = items[:2]
         initializer = items[2:] if len(items) > 2 else None
-        return Declaration(type=type.value, name=name, value=initializer)
+        return Declaration(type=type, name=name, value=initializer)
 
     def assignment(self, items):
         name, value = items
-        return Assignment(name=name.value, value=value)
+        return Assignment(name=name, value=value)
 
     def expression(self, items):
         if len(items) == 1: # single term
-            return items
+            return items[0]
         left = items[0]
-        for op, right in zip(items[1::2], items[2::2]):
+        for op, right in zip(items[1::2], items[2::]):
             left = Binary(op=op, left=left, right=right)
         return left
 
     def term(self, items):
-        if len(items) == 1: # single factor
-            return items # return items[0]
-        left = items[0] # multiple factors
-        for op, right in zip(items[1::2], items[2::2]):
-            left = Binary(op=op, left=left, right=right)
-        return left
+        if len(items) == 1: # only one factor
+            return items[0]
+        left = items[0]     # multiple factors
+        for i in items:
+            op = items[1::2]
+            right = items[2::2]
+            return Binary(op=op, left=left, right=right)
+        #for op, right in zip(items[1::2], items[2::2]):
+        #    left = Binary(op=op, left=left, right=right)
+        #return left
 
     def factor(self, items):
-        item = items[0]
-        #if isinstance(item, Token):
-        if item == "NUMBER":
-            return Literal(value=item.value)
-        elif item == "identifier":
-            return Variable(name=item.value)
-        return item
+        #item = items[0]
+        if isinstance(items, Token):
+            if items[0].type == "NUMBER":
+                return Literal(value=items[0].value)
+            elif items[0].type == "identifier":
+                return Variable(name=items[0].value)
+            return items[0].value
 
     def qualifier(self, token):
-        return token
+        return token[0].value
 
     def type(self, token):
-        return token
+        return token[0].value
 
     def ops(self, token):
-        return token
+        return token[0].value
     
     def identifier(self, token):
-        return token
+        return token[0].value
 
 
 grammar = r"""
@@ -149,12 +153,17 @@ grammar = r"""
           | identifier
           | "(" expression ")"
     
-    qualifier: "__global__" # | "__device__" | "__host__"
-    type: "void" | "int" | "float"
-    ops: "+" | "*" | "-" | "/"
+    qualifier: QUALIFIER
+    type: TYPE
+    ops: OPS
     #term_ops: "+" | "-"
     #factor_ops: "*" | "/"
     identifier: NAME
+
+    # added these so Tranformer can call the methods related
+    QUALIFIER: "__global__" | "__device__" | "__host__"
+    TYPE: "void" | "int" | "float"
+    OPS: "+" | "*" | "-" | "/" 
 
     %import common.CNAME -> NAME
     %import common.NUMBER
@@ -168,6 +177,7 @@ grammar = r"""
 code = r"""
 __global__ void add(int a, int b) {
     int c = a + b;
+    int i = 5;
 }
 """
 
