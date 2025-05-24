@@ -63,7 +63,6 @@ class Variable(Expression): # var name
 # The transformer is where you define how each grammar rule (and its parse_tree nodes) becomes an AST node. 
 # You create a Transformer class with methods for each grammar rule. Each method takes the parse tree?s 
 # children (tokens or subtrees) and returns an AST node.
-
 class CUDA_AST(Transformer):
     
     def kernel(self, items):
@@ -90,33 +89,36 @@ class CUDA_AST(Transformer):
         return Assignment(name=name, value=value)
 
     def expression(self, items):
+        #print(f"EXPRESSION items: {items}")
+        #print(f"len: {len(items)}")
         if len(items) == 1: # single term
             return items[0]
         left = items[0]
-        for op, right in zip(items[1::2], items[2::]):
+        for op, right in zip(items[1::2], items[2::2]):
             left = Binary(op=op, left=left, right=right)
+        #print(f"items:{items} left:{left}")
         return left
 
     def term(self, items):
+        #print(f"TERM ITEMS: {items}")
         if len(items) == 1: # only one factor
             return items[0]
         left = items[0]     # multiple factors
-        for i in items:
-            op = items[1::2]
-            right = items[2::2]
-            return Binary(op=op, left=left, right=right)
-        #for op, right in zip(items[1::2], items[2::2]):
-        #    left = Binary(op=op, left=left, right=right)
-        #return left
+        for op, right in zip(items[1::2], items[2::2]):
+            left = Binary(op=op, left=left, right=right)
+        return left
 
     def factor(self, items):
-        #item = items[0]
-        if isinstance(items, Token):
-            if items[0].type == "NUMBER":
-                return Literal(value=items[0].value)
-            elif items[0].type == "identifier":
-                return Variable(name=items[0].value)
-            return items[0].value
+        #print(f"FACTOR ITEMS: {items}")
+        #print(f"FACTOR ITEMS[0]: {items[0]}")
+        #if isinstance(items, Token): 
+        if items[0].type == "NUMBER":
+            #print(f"is number!")
+            return Literal(value=items[0].value)
+        elif items[0].type == "NAME":
+            #print(f"is identifier!")
+            return Variable(name=items[0].value)
+        return items[0]#.value
 
     def qualifier(self, token):
         return token[0].value
@@ -124,11 +126,18 @@ class CUDA_AST(Transformer):
     def type(self, token):
         return token[0].value
 
-    def ops(self, token):
+    def term_ops(self, token):
+        #print(f"token {token}")
         return token[0].value
+
+    def factor_ops(self, token):
+        return token[0].value
+
+    #def ops(self, token):
+    #   return token[0].value
     
     def identifier(self, token):
-        return token[0].value
+        return token[0] #.value
 
 
 grammar = r"""
@@ -145,9 +154,9 @@ grammar = r"""
 
     declaration: type identifier ("=" expression)? # var declaration
     assignment: identifier "=" expression 
-    expression: term (ops term)*
+    expression: term (term_ops term)*
 
-    term: factor (ops factor)*
+    term: factor (factor_ops factor)*
     
     factor: NUMBER
           | identifier
@@ -155,15 +164,17 @@ grammar = r"""
     
     qualifier: QUALIFIER
     type: TYPE
-    ops: OPS
-    #term_ops: "+" | "-"
-    #factor_ops: "*" | "/"
+    #ops: term_ops | factor_ops #OPS
+    term_ops: TERM_OPS
+    factor_ops: FACTOR_OPS
     identifier: NAME
 
     # added these so Tranformer can call the methods related
     QUALIFIER: "__global__" | "__device__" | "__host__"
     TYPE: "void" | "int" | "float"
-    OPS: "+" | "*" | "-" | "/" 
+    TERM_OPS: "+" | "-"
+    FACTOR_OPS: "*" | "/"
+    #OPS: "+" | "*" | "-" | "/" 
 
     %import common.CNAME -> NAME
     %import common.NUMBER
@@ -178,6 +189,7 @@ code = r"""
 __global__ void add(int a, int b) {
     int c = a + b;
     int i = 5;
+    int j = 2 * 3;
 }
 """
 
@@ -195,27 +207,6 @@ print(ast)
 # "variable" = a named identifier: a or result or threadIdx
 
 # Obs: in ASTs, the interior nodes are the operators (+, *, -, /, ...) And the leaves are the operands (2, 6, 1, ...)
-# We represent AST nodes for the expression "7 + 3 * 4" as: 
-# {
-#   type: "BinExpr", 
-#   op: "+", 
-#   left: {
-#       type: "NumericLiteral", 
-#       value: 7
-#   },
-#   right: {
-#       type: "BinExpr",
-#       op: "*",
-#       left: {
-#           type: "NumericLiteral",
-#           value: 3,
-#       },
-#       right: {
-#           type: "NumericLiteral",
-#           value: 4,
-#       }
-#   } 
-# }
 
 """
 # This is a test example to see how the AST class are!
