@@ -1,6 +1,5 @@
-__global__ void vecAdd(float *A, float *B, float *C) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx < n) {
-        C[idx] = A[idx] + B[idx];
-    }
+__global__ void add(int a, int b) {
+    int c = a + b;
+    int i = 5;
+    int j = 2 * 3;
 }

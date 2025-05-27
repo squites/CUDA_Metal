@@ -1,8 +1,10 @@
 from lark import Lark, Transformer, Token
-#from parser import tree
 from dataclasses import dataclass
 from typing import Union, List, Optional
 from enum import Enum
+
+# grammar
+from grammar import cuda_grammar
 
 # class for the Node of the Abstract Syntax Tree
 class ASTNode:
@@ -39,6 +41,7 @@ class Declaration(Statement):
 @dataclass
 class Assignment(Statement):
     name: str
+    #index: str #
     value: "Expression" # instance of Expression class. "Expression" with quotes because Expression class is not yet defined
 
 # base class for expressions
@@ -60,11 +63,12 @@ class Variable(Expression): # var name
     name: str
 
 # Transformer class
-# The transformer is where you define how each grammar rule (and its parse_tree nodes) becomes an AST node. 
-# You create a Transformer class with methods for each grammar rule. Each method takes the parse tree?s 
-# children (tokens or subtrees) and returns an AST node.
 class CUDA_AST(Transformer):
-    
+    """ 
+    Class where you define how each grammar rule (and parse_tree nodes) becomes an AST node. 
+    You create a Transformer class with methods for each grammar rule. Each method takes the parse tree's 
+    children (tokens or subtrees) and returns an AST node.
+    """
     def kernel(self, items):
         qualifier, type, name, params, body = items
         return Kernel(qualifier=qualifier, type=type, name=name, parameters=params, body=body)
@@ -84,13 +88,22 @@ class CUDA_AST(Transformer):
         initializer = items[2:] if len(items) > 2 else None
         return Declaration(type=type, name=name, value=initializer)
 
+    #def assignment(self, items):
+    #    name, value = items
+    #    return Assignment(name=name, value=value)
+
     def assignment(self, items):
+       # if len(items) == 3:
+       #     name, index, value = items
+            #return Assignment(name=name, index=index, value=value)
+       # else:
         name, value = items
-        return Assignment(name=name, value=value)
+        #index = None
+        return Assignment(name=name, value=value) 
+            
 
     def expression(self, items):
         #print(f"EXPRESSION items: {items}")
-        #print(f"len: {len(items)}")
         if len(items) == 1: # single term
             return items[0]
         left = items[0]
@@ -109,8 +122,7 @@ class CUDA_AST(Transformer):
         return left
 
     def factor(self, items):
-        #print(f"FACTOR ITEMS: {items}")
-        #print(f"FACTOR ITEMS[0]: {items[0]}")
+        print(f"FACTOR ITEMS: {items}")
         #if isinstance(items, Token): 
         if items[0].type == "NUMBER":
             #print(f"is number!")
@@ -118,13 +130,17 @@ class CUDA_AST(Transformer):
         elif items[0].type == "NAME":
             #print(f"is identifier!")
             return Variable(name=items[0].value)
+        #elif items[0].type == ""
         return items[0]#.value
 
     def qualifier(self, token):
         return token[0].value
 
     def type(self, token):
-        return token[0].value
+        return token[0].value   
+    
+    #def base_type(self, token):
+    #    return token[0].value
 
     def term_ops(self, token):
         #print(f"token {token}")
@@ -139,67 +155,34 @@ class CUDA_AST(Transformer):
     def identifier(self, token):
         return token[0] #.value
 
+    def array_index(self, items):
+        print(f"items: {items}")
+        return items   
 
-grammar = r"""
-    start: kernel*
-
-    kernel: qualifier type identifier "(" params ")" "{" body "}"
-    params: [parameter ("," parameter)*]
-    parameter: type identifier
-    # params: (declaration ("," declaration)*)?
-    body: statement*
-    
-    statement: declaration ";"
-             | assignment  ";"
-
-    declaration: type identifier ("=" expression)? # var declaration
-    assignment: identifier "=" expression 
-    expression: term (term_ops term)*
-
-    term: factor (factor_ops factor)*
-    
-    factor: NUMBER
-          | identifier
-          | "(" expression ")"
-    
-    qualifier: QUALIFIER
-    type: TYPE
-    #ops: term_ops | factor_ops #OPS
-    term_ops: TERM_OPS
-    factor_ops: FACTOR_OPS
-    identifier: NAME
-
-    # added these so Tranformer can call the methods related
-    QUALIFIER: "__global__" | "__device__" | "__host__"
-    TYPE: "void" | "int" | "float"
-    TERM_OPS: "+" | "-"
-    FACTOR_OPS: "*" | "/"
-    #OPS: "+" | "*" | "-" | "/" 
-
-    %import common.CNAME -> NAME
-    %import common.NUMBER
-    %import common.WS
-    %ignore WS
-"""
 # Expression is "Term((+|-) Term)*" . Ex: (8 + 24 * 2) is an expression because there are one Term '8' + another Term '24 * 2'
 # Term is "Factor((*|/) Factor)*" Ex: (8) + (24 * 2), so 8 is a term and (24 * 2) is another term, because they are splitted by + signal
 # Factor are the numbers. Ex: 8 + 24 * 2, so 8, 24, 2 are all factors
 
-code = r"""
+# after move this kernel to "kernel.cu"
+kernel = r"""
 __global__ void add(int a, int b) {
     int c = a + b;
-    int i = 5;
-    int j = 2 * 3;
 }
 """
 
-parser = Lark(grammar)
-tree = parser.parse(code)
+kernel_vecAdd = r"""
+__global__ void vecAdd(int* a, int* b, int* c, int idx) {
+    c[idx] = a[idx] + b[idx];   
+}
+"""
+
+parser = Lark(cuda_grammar)
+tree = parser.parse(kernel_vecAdd)
 print(tree.pretty())
 
 x = CUDA_AST()
 ast = x.transform(tree)
-print(ast)
+print(ast.pretty())
 
 
 # "binary" = 2 operands and 1 operator: 2 + 3 or 2 + (3 * 4) or a + b
@@ -207,71 +190,3 @@ print(ast)
 # "variable" = a named identifier: a or result or threadIdx
 
 # Obs: in ASTs, the interior nodes are the operators (+, *, -, /, ...) And the leaves are the operands (2, 6, 1, ...)
-
-"""
-# This is a test example to see how the AST class are!
-class AST(Transformer):
-    def __init__(self):
-        super().__init__()
-
-    def kernel(self, tokens):
-        type = tokens[0]
-        name = tokens[1]
-        params = tokens[2] 
-        body = tokens[3:]
-        return Kernel(type, name, params, body)
-
-    def params(self, items):
-        return items # list of declarations
-
-    def declaration(self, tokens):
-        type = tokens[0]
-        name = tokens[1]
-        val = tokens[2] if len(tokens) > 2 else None
-        return Declaration(type, name, val) #Declaration(type, name, val)
-
-    def assignment(self, tokens):
-        identifier = tokens[0]
-        expr = tokens[1]
-        return Assignment(identifier, expr)
-
-    def expression(self, tokens):
-        left = tokens[0]
-        for i in range(1, len(tokens), 2):
-            op = tokens[i]
-            right = tokens[i+1]
-            left = Expression(op, left, right)
-        return left
-    
-    def term(self, tokens):
-        fact_left, op, fact_right = tokens
-        
-        factor_l = tokens[0]
-        for i in range(1, len(tokens), 2):
-            op = token[i]
-            factor_r = token[i+1]
-            factor_l = Expression(op, factor_l, factor_r)
-        return factor_l
-
-    def factor(self, token):
-        return token
-
-    def binary(self, tokens):
-        left, op, right = tokens
-        return Binary(op, left, right)
-    
-    def literal(self, value):
-        return Literal(value)
-
-    def variable(self, name):
-        return Variable(name)
-
-    def identifier(self, tokens):
-        return tokens[0].value
-
-    def type(self, tokens):
-        return str(tokens)
-
-    def NUMBER(self, items):
-        return int(items.value)
-"""
