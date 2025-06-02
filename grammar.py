@@ -3,7 +3,8 @@ from lark import Lark
 cuda_grammar = r"""
     start: kernel*
 
-    kernel: qualifier type identifier "(" params ")" "{" body "}"
+    # kernel signature
+    kernel: qualifier "void" identifier "(" params ")" "{" body "}"
     params: [parameter ("," parameter)*]
     parameter: type identifier
     body: statement*
@@ -11,8 +12,8 @@ cuda_grammar = r"""
     statement: declaration ";"
              | assignment  ";"
 
-    declaration: type identifier ("=" expression)? # var declaration
-    #assignment: identifier "=" expression 
+    # statements
+    declaration: type identifier ("=" expression)? # var declaration 
     assignment: (array_index | identifier) "=" expression
     expression: term (term_ops term)*
 
@@ -22,7 +23,9 @@ cuda_grammar = r"""
           | identifier
           | "(" expression ")"
           | array_index
+          | cuda_var
     
+    # needed to AST
     qualifier: QUALIFIER
     type: TYPE
     term_ops: TERM_OPS
@@ -30,15 +33,18 @@ cuda_grammar = r"""
     identifier: NAME
     array_index: identifier ("[" expression "]") # a[i+1]
     
-    # added these so Tranformer can call the methods related
+    # types and ops
     QUALIFIER: "__global__" | "__device__" | "__host__"
     TYPE: BASE_TYPE "*"?
     BASE_TYPE: "void" | "int" | "float"
     TERM_OPS: "+" | "-"
     FACTOR_OPS: "*" | "/"
-    # improving the grammar
-    # cuda_var: ("blockIdx" | "blockDim" | "threadIdx") "." ("x" | "y")
+    #cuda_var: ("blockIdx" | "blockDim" | "threadIdx") "." ("x" | "y")
+    cuda_var: BASE_VAR "." CUDA_DIM
+    BASE_VAR: ("blockIdx" | "blockDim" | "threadIdx")
+    CUDA_DIM: ("x" | "y")
 
+    # imports 
     %import common.CNAME -> NAME
     %import common.NUMBER
     %import common.WS

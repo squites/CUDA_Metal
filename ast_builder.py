@@ -1,8 +1,7 @@
-from lark import Lark, Transformer, Token
+from lark import Lark, Transformer, Token, Tree
 from dataclasses import dataclass
 from typing import Union, List, Optional
 from enum import Enum
-
 # grammar
 from grammar import cuda_grammar
 
@@ -62,6 +61,17 @@ class Literal(Expression): # constant
 class Variable(Expression): # var name
     name: str
 
+# maybe create a new class ArrayAccess
+@dataclass
+class Array(Expression):
+    name: Variable
+    index: Expression
+
+@dataclass
+class CudaVar:
+    base: str
+    dim: str
+
 # Transformer class
 class CUDA_AST(Transformer):
     """ 
@@ -70,15 +80,15 @@ class CUDA_AST(Transformer):
     children (tokens or subtrees) and returns an AST node.
     """
     def kernel(self, items):
-        qualifier, type, name, params, body = items
-        return Kernel(qualifier=qualifier, type=type, name=name, parameters=params, body=body)
+        qualifier, name, params, body = items
+        return Kernel(qualifier=qualifier, type="void", name=str(name), parameters=params, body=body)
 
     def params(self, items):
         return items
 
     def parameter(self, items):
         type, name = items
-        return Parameter(type=type, name=name) # "'list' object has no attribute 'value'". I took off the ".value"
+        return Parameter(type=type, name=str(name)) # "'list' object has no attribute 'value'". I took off the ".value"
 
     def body(self, block):
         return Body(statements=block)
@@ -86,34 +96,21 @@ class CUDA_AST(Transformer):
     def declaration(self, items):
         type, name = items[:2]
         initializer = items[2:] if len(items) > 2 else None
-        return Declaration(type=type, name=name, value=initializer)
-
-    #def assignment(self, items):
-    #    name, value = items
-    #    return Assignment(name=name, value=value)
+        return Declaration(type=type, name=str(name), value=initializer)
 
     def assignment(self, items):
-       # if len(items) == 3:
-       #     name, index, value = items
-            #return Assignment(name=name, index=index, value=value)
-       # else:
         name, value = items
-        #index = None
-        return Assignment(name=name, value=value) 
-            
+        return Assignment(name=name, value=value)
 
     def expression(self, items):
-        #print(f"EXPRESSION items: {items}")
         if len(items) == 1: # single term
             return items[0]
         left = items[0]
         for op, right in zip(items[1::2], items[2::2]):
             left = Binary(op=op, left=left, right=right)
-        #print(f"items:{items} left:{left}")
         return left
 
     def term(self, items):
-        #print(f"TERM ITEMS: {items}")
         if len(items) == 1: # only one factor
             return items[0]
         left = items[0]     # multiple factors
@@ -122,46 +119,50 @@ class CUDA_AST(Transformer):
         return left
 
     def factor(self, items):
-        print(f"FACTOR ITEMS: {items}")
-        #if isinstance(items, Token): 
-        if items[0].type == "NUMBER":
-            #print(f"is number!")
-            return Literal(value=items[0].value)
-        elif items[0].type == "NAME":
-            #print(f"is identifier!")
-            return Variable(name=items[0].value)
-        #elif items[0].type == ""
-        return items[0]#.value
+        item = items[0]
+        if isinstance(item, Token): 
+            #print(f"FACTOR TOKEN: {items}   items[0]: {items[0].value}")
+            if item.type == "NUMBER":
+                return Literal(value=item.value)
+            elif item.type == "NAME":
+                return Variable(name=item.value)
+        #elif isinstance(item, Tree):
+        #    print(f"FACTOR TREE: {items}   items[0]: {items[0]}")
+        #    if item.data == "cuda_var":
+        #        return CudaVar(var=item, dim=item) 
+        return item#.value
 
     def qualifier(self, token):
         return token[0].value
 
     def type(self, token):
         return token[0].value   
-    
-    #def base_type(self, token):
-    #    return token[0].value
 
     def term_ops(self, token):
-        #print(f"token {token}")
         return token[0].value
 
     def factor_ops(self, token):
         return token[0].value
-
-    #def ops(self, token):
-    #   return token[0].value
     
     def identifier(self, token):
         return token[0] #.value
 
     def array_index(self, items):
-        print(f"items: {items}")
-        return items   
+        name, index = items
+        return Array(name=str(name), index=index)
 
-# Expression is "Term((+|-) Term)*" . Ex: (8 + 24 * 2) is an expression because there are one Term '8' + another Term '24 * 2'
-# Term is "Factor((*|/) Factor)*" Ex: (8) + (24 * 2), so 8 is a term and (24 * 2) is another term, because they are splitted by + signal
-# Factor are the numbers. Ex: 8 + 24 * 2, so 8, 24, 2 are all factors
+    def base_var(self, items):
+        #print(f"base_var: {items}")
+        return str(items[0].value)
+
+    def cuda_dim(self, items):
+        #print(f"cuda_dim: {items}")
+        return str(items[0].value)
+        
+    def cuda_var(self, items):
+        #print(f"cuda_var items: {items}")
+        base, dim = items
+        return CudaVar(base=str(base), dim=str(dim))
 
 # after move this kernel to "kernel.cu"
 kernel = r"""
@@ -171,8 +172,9 @@ __global__ void add(int a, int b) {
 """
 
 kernel_vecAdd = r"""
-__global__ void vecAdd(int* a, int* b, int* c, int idx) {
-    c[idx] = a[idx] + b[idx];   
+__global__ void vecAdd(int* a, int* b, int* c) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    c[idx] = a[idx] + b[idx];  
 }
 """
 
@@ -190,3 +192,6 @@ print(ast.pretty())
 # "variable" = a named identifier: a or result or threadIdx
 
 # Obs: in ASTs, the interior nodes are the operators (+, *, -, /, ...) And the leaves are the operands (2, 6, 1, ...)
+# Expression is "Term((+|-) Term)*" . Ex: (8 + 24 * 2) is an expression because there are one Term '8' + another Term '24 * 2'
+# Term is "Factor((*|/) Factor)*" Ex: (8) + (24 * 2), so 8 is a term and (24 * 2) is another term, because they are splitted by + signal
+# Factor are the numbers. Ex: 8 + 24 * 2, so 8, 24, 2 are all factors
