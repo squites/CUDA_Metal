@@ -7,7 +7,9 @@ from grammar import cuda_grammar
 
 # class for the Node of the Abstract Syntax Tree
 class ASTNode:
-    pass
+    #pass
+    def pretty_print(self, indent=0):
+        raise NotImplementedError
 
 # important classes for semantic
 @dataclass
@@ -18,14 +20,38 @@ class Kernel(ASTNode):
     parameters: List["Parameter"]
     body: "Body"
 
+    def pretty_print(self, indent=0):
+        space = " " * (indent+2)
+        print("Kernel(")
+        print(f"{space}qualifier={self.qualifier},")
+        print(f"{space}type={self.type},")
+        print(f"{space}name={self.name},")
+        print(f"{space}parameters=[")
+        for param in self.parameters:
+            param.pretty_print(indent+4)
+        print(f"{space}],")
+        self.body.pretty_print(indent+2)
+        print(")") #{space}?
+
 @dataclass
 class Parameter(ASTNode):
     type: str
     name: str
 
+    def pretty_print(self, indent):
+        space = " " * indent
+        print(f"{space}Parameter(type={self.type}, name={self.name})")
+
 @dataclass
 class Body(ASTNode):
     statements: List["Statement"]
+
+    def pretty_print(self, indent=0):
+        space = " " * indent
+        print(f"{space}Body(statements=[")
+        for stmnt in self.statements:
+            stmnt.pretty_print(indent+2)
+        print(f"{space}])")
 
 # base class for declaration and assignment
 class Statement(ASTNode):
@@ -37,11 +63,25 @@ class Declaration(Statement):
     name: str
     value: Optional["Expression"] = None
 
+    def pretty_print(self, indent=0):
+        space = " " * (indent + 2)
+        print("    Declaration(")
+        print(f"{space}type={self.type},")
+        print(f"{space}name={self.name},")
+        print(f"{space}value={self.value}")
+        print("    )")
+
 @dataclass
 class Assignment(Statement):
     name: str
-    #index: str #
     value: "Expression" # instance of Expression class. "Expression" with quotes because Expression class is not yet defined
+
+    def pretty_print(self, indent=0):
+        space = " " * (indent+2)
+        print(f"    Assignment(")
+        print(f"{space}name={self.name},")
+        print(f"{space}value={self.value}")
+        print("    )")
 
 # base class for expressions
 class Expression(ASTNode):
@@ -50,16 +90,36 @@ class Expression(ASTNode):
 @dataclass
 class Binary(Expression):
     op: str
-    left: Expression #Union["Binary", "Literal", "Variable"] # or left: Expression
-    right: Expression #Union["Binary", "Literal", "Variable"] # or right: Expression
+    left: Expression 
+    right: Expression
+
+    def pretty_print(self, indent=0):
+        space = " " * indent
+        print(f"{space}Binary(")
+        print(f"{space}op={self.op},")
+        print(f"{space}left={self.left},")
+        print(f"{space}right={self.right}")
+        print(")")
 
 @dataclass
 class Literal(Expression): # constant
     value: Union[int, float]
 
+    def pretty_print(self, indent=0):
+        space = " " * indent
+        print(f"{space}Literal(")
+        print(f"{space}value={self.value}")
+        print(")")
+
 @dataclass
 class Variable(Expression): # var name
     name: str
+
+    def pretty_print(self, indent=0):
+        space = " " * indent
+        print(f"{space}Variable(")
+        print(f"{space}name={self.name}")
+        print(")")
 
 # maybe create a new class ArrayAccess
 @dataclass
@@ -67,10 +127,24 @@ class Array(Expression):
     name: Variable
     index: Expression
 
+    def pretty_print(self, indent=0):
+        space = " " * indent
+        print(f"{space}Array(")
+        print(f"{space}name={self.name},")
+        print(f"{space}index={self.index}")
+        print(")")
+
 @dataclass
 class CudaVar:
-    base: str
-    dim: str
+    base: str # blockIdx, threadIdx, ...
+    dim: str # x, y, z
+
+    def pretty_print(self, indent=0):
+        space = " " * indent
+        print(f"{space}CudaVar(")
+        print(f"{space}base={self.base},")
+        print(f"{space}dim={self.dim}")
+        print(")")
 
 # Transformer class
 class CUDA_AST(Transformer):
@@ -79,6 +153,9 @@ class CUDA_AST(Transformer):
     You create a Transformer class with methods for each grammar rule. Each method takes the parse tree's 
     children (tokens or subtrees) and returns an AST node.
     """
+    def start(self, items):
+        return items[0]
+    
     def kernel(self, items):
         qualifier, name, params, body = items
         return Kernel(qualifier=qualifier, type="void", name=str(name), parameters=params, body=body)
@@ -93,10 +170,13 @@ class CUDA_AST(Transformer):
     def body(self, block):
         return Body(statements=block)
 
+    # Used to replace "Tree(Token('RULE', 'statement'), ...)"
+    def statement(self, items):
+        return items[0]
+    
     def declaration(self, items):
-        type, name = items[:2]
-        initializer = items[2:] if len(items) > 2 else None
-        return Declaration(type=type, name=str(name), value=initializer)
+        type, name, initializer = items
+        return Declaration(type=str(type), name=str(name), value=initializer)
 
     def assignment(self, items):
         name, value = items
@@ -121,15 +201,10 @@ class CUDA_AST(Transformer):
     def factor(self, items):
         item = items[0]
         if isinstance(item, Token): 
-            #print(f"FACTOR TOKEN: {items}   items[0]: {items[0].value}")
             if item.type == "NUMBER":
                 return Literal(value=item.value)
             elif item.type == "NAME":
                 return Variable(name=item.value)
-        #elif isinstance(item, Tree):
-        #    print(f"FACTOR TREE: {items}   items[0]: {items[0]}")
-        #    if item.data == "cuda_var":
-        #        return CudaVar(var=item, dim=item) 
         return item#.value
 
     def qualifier(self, token):
@@ -164,6 +239,7 @@ class CUDA_AST(Transformer):
         base, dim = items
         return CudaVar(base=str(base), dim=str(dim))
 
+
 # after move this kernel to "kernel.cu"
 kernel = r"""
 __global__ void add(int a, int b) {
@@ -184,8 +260,13 @@ print(tree.pretty())
 
 x = CUDA_AST()
 ast = x.transform(tree)
-print(ast.pretty())
+#print(ast.pretty())
 
+print(f"type ast: {type(ast)}")
+print(f"params: {ast.parameters}")
+print(f"body: {ast.body}")
+
+ast.pretty_print()
 
 # "binary" = 2 operands and 1 operator: 2 + 3 or 2 + (3 * 4) or a + b
 # "literal" = constant value: 2 or 3.1 or "string"
