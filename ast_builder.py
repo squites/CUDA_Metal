@@ -1,24 +1,26 @@
-from lark import Lark, Transformer, Token, Tree
+from lark import Transformer, Token
 from dataclasses import dataclass
 from typing import Union, List, Optional
-from enum import Enum
-# grammar
-from grammar import cuda_grammar
 
-# classes for the Nodes of the Abstract Syntax Tree. So each class is an Object that will be a node when called.
-class ASTNode:
-    #pass
+# classes for nodes of the Abstract Syntax Tree. So each class is an Object that will be a node when called.
+class CUDA_Ast:
+    def children(self):
+        return []
+
     def pretty_print(self, indent=0):
         raise NotImplementedError
 
-# important classes for semantic
+# semantic classes
 @dataclass
-class Kernel(ASTNode):
+class Kernel(CUDA_Ast):
     qualifier: str
     type: str
     name: str
     parameters: List["Parameter"]
     body: "Body"
+
+    def children(self):
+        return [*self.parameters, self.body]
 
     def pretty_print(self, indent=0):
         space = " " * (indent+2)
@@ -34,7 +36,7 @@ class Kernel(ASTNode):
         print(")") #{space}?
 
 @dataclass
-class Parameter(ASTNode):
+class Parameter(CUDA_Ast):
     type: str
     name: str
 
@@ -43,8 +45,11 @@ class Parameter(ASTNode):
         print(f"{space}Parameter(type={self.type}, name={self.name})")
 
 @dataclass
-class Body(ASTNode):
+class Body(CUDA_Ast):
     statements: List["Statement"]
+
+    def children(self):
+        return [*self.statements]
 
     def pretty_print(self, indent=0):
         space = " " * indent
@@ -54,7 +59,7 @@ class Body(ASTNode):
         print(f"{space}])")
 
 # base class for declaration and assignment
-class Statement(ASTNode):
+class Statement(CUDA_Ast):
     pass
 
 @dataclass
@@ -62,6 +67,9 @@ class Declaration(Statement):
     type: str
     name: str
     value: Optional["Expression"] = None
+
+    def children(self):
+        return [self.value] if self.value is not None else []
 
     def pretty_print(self, indent=0):
         space = " " * (indent + 2)
@@ -83,8 +91,8 @@ class Assignment(Statement):
         print(f"{space}value={self.value}")
         print("    )")
 
-# base class for expressions
-class Expression(ASTNode):
+# base class for expressions. Base classes define a common type
+class Expression(CUDA_Ast):
     pass
 
 @dataclass
@@ -121,7 +129,6 @@ class Variable(Expression): # var name
         print(f"{space}name={self.name}")
         print(")")
 
-# maybe create a new class ArrayAccess
 @dataclass
 class Array(Expression):
     name: Variable
@@ -147,11 +154,11 @@ class CudaVar:
         print(")")
 
 # Transformer class
-class CUDA_AST(Transformer):
+class CUDATransformer(Transformer):
     """ 
     Class where you define how each grammar rule (and parse_tree nodes) becomes an AST node. 
-    You create a Transformer class with methods for each grammar rule. Each method takes the parse tree's 
-    children (tokens or subtrees) and returns an AST node.
+    You create a Transformer class with methods for each grammar rule. When you call ".transform()", each method 
+    takes the parse tree's children (tokens or subtrees) and returns an AST node.
     """
     def start(self, items):
         return items[0]
@@ -180,6 +187,7 @@ class CUDA_AST(Transformer):
 
     def assignment(self, items):
         name, value = items
+        print(f"value type: {type(value)}\n value:{value}")
         return Assignment(name=name, value=value)
 
     def expression(self, items):
@@ -227,44 +235,91 @@ class CUDA_AST(Transformer):
         return Array(name=str(name), index=index)
 
     def base_var(self, items):
-        #print(f"base_var: {items}")
         return str(items[0].value)
 
     def cuda_dim(self, items):
-        #print(f"cuda_dim: {items}")
         return str(items[0].value)
         
     def cuda_var(self, items):
-        #print(f"cuda_var items: {items}")
         base, dim = items
         return CudaVar(base=str(base), dim=str(dim))
 
 
-# after move this kernel to "kernel.cu"
-kernel = r"""
-__global__ void add(int a, int b) {
-    int c = a + b;
-}
-"""
+################# METAL ###################
+class METAL_Ast():
+    def children():
+        return []
 
-kernel_vecAdd = r"""
-__global__ void vecAdd(int* a, int* b, int* c) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    c[idx] = a[idx] + b[idx];  
-}
-"""
+@dataclass
+class METAL_Kernel_node(METAL_Ast):
+    qualifier: str
+    type: str
+    name: str
+    parameters: List["METAL_parameter_node"]
+    body: "METAL_body_node"
 
-parser = Lark(cuda_grammar)
-tree = parser.parse(kernel_vecAdd)
-print(f"parse tree: {tree}")
-#print(tree.pretty())
+    def children(self):
+        return [*self.parameters, self.body]
 
-x = CUDA_AST()
-ast = x.transform(tree)
-#print(ast.pretty())
+@dataclass
+class METAL_Parameter_node(METAL_Ast):
+    memory_type: str
+    type: str
+    name: str
 
-#ast.pretty_print() # structured print
+@dataclass
+class METAL_Body_node(METAL_Ast):
+    statements: List["METAL_statement_node"]
 
+    def children(self):
+        return [*self.statements]
+
+# base class for statements
+class METAL_Statement_node(METAL_Ast):
+    pass
+
+@dataclass
+class METAL_Declaration_node(METAL_Statement_node):
+    type: str
+    name: str
+    value: Optional["METAL_expression_node"] = None
+
+@dataclass
+class METAL_Assignment_node(METAL_Statement_node):
+    name: str
+    value: "METAL_Expression_node" # forward reference
+
+# base class for expressions
+class METAL_Expression_node(METAL_Ast):
+    pass
+
+@dataclass
+class METAL_Binary_node(METAL_Expression_node):
+    op: str
+    left: METAL_Expression_node
+    right: METAL_Expression_node
+
+@dataclass
+class METAL_Literal_node(METAL_Expression_node):
+    value: Union[int, float]
+
+@dataclass
+class METAL_Variable_node(METAL_Expression_node):
+    name: str
+
+@dataclass
+class METAL_Array_node(METAL_Ast):
+    name: METAL_Variable_node
+    index: METAL_Expression_node
+
+@dataclass
+class METAL_Var_node(METAL_Ast):
+    metal_var: str
+
+
+
+# ------------------------------ DOC ---------------------------------
+# 
 # "binary" = 2 operands and 1 operator: 2 + 3 or 2 + (3 * 4) or a + b
 # "literal" = constant value: 2 or 3.1 or "string"
 # "variable" = a named identifier: a or result or threadIdx
@@ -275,7 +330,10 @@ ast = x.transform(tree)
 
 
 # Transformer funcionality:
-# In parse tree only has Tree() or Token(). Tree(data=rule_name, children=[...]) while Token(type=TERMINAL_SYMBOL, value). 
+# Parse tree only has Tree() or Token().:
+#   - Tree(data=rule_name, children=[...]) and
+#   - Token(type=TERMINAL_SYMBOL, value)
+#
 # Tree() represent grammar rules. Token() represent terminal symbols (leaves).
 #
 # Imagine we have:
@@ -290,7 +348,7 @@ ast = x.transform(tree)
 # 3) Before calling the method, the Transformer recursively transforms the children
 #    - the child is a Token(), so converts to its string value which is "__global__"
 #    - after doing this with all the children, it calls the qualifier method passing the children as parameters
-#      so: qualifier(self, ["__global__"])
+#      so: def qualifier(self, ["__global__"])
 # 
 # 4) The qualifier method receives ["__global__"]:
 #    - then it can create an AST node calling the corresponded class "Qualifier(...)"  or simply returns the string.
@@ -298,3 +356,12 @@ ast = x.transform(tree)
 # When to return a string and when to create a AST node?
 # Node: when represents a semantic structure. is not just a string, but a construct with meaning and behavior
 # string: when is just a primitive value like: "int", 'x', "__global__", ...
+#
+# structure:
+# Parse Tree:
+#   Token(type="TYPE_NAME", value="actual_text")
+#   Tree(data="rule_name", children=[...]) # data: str, children: list of Tree()s and Token()s
+#
+# AST:
+#   - for every Tree(data="rule", children=[...]), Lark finds the method called "def rule(self, children)"
+#     This method transform the parse_tree node into python object - AST node.
