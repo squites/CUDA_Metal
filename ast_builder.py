@@ -308,7 +308,7 @@ class METAL_Variable_node(METAL_Expression_node):
     name: str
 
 @dataclass
-class METAL_Array_node(METAL_Ast):
+class METAL_Array_node(METAL_Expression_node):
     name: METAL_Variable_node
     index: METAL_Expression_node
 

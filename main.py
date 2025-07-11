@@ -44,8 +44,9 @@ def main():
     print(cuda_ast)
 
     # cuda visitor
-    #cuda_visitor = CUDAVisitor()
-    #cuda_visitor.visit(cuda_ast)
+    cuda_visitor = CUDAVisitor()
+    cuda_visitor.visit(cuda_ast)
+    print("METAL AST\n", cuda_visitor)
 
 if __name__ == "__main__":
     main()
