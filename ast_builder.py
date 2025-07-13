@@ -251,69 +251,69 @@ class METAL_Ast():
         return []
 
 @dataclass
-class METAL_Kernel_node(METAL_Ast):
+class METAL_Kernel(METAL_Ast):
     qualifier: str
     type: str
     name: str
-    parameters: List["METAL_parameter_node"]
-    body: "METAL_body_node"
+    parameters: List["METAL_Parameter"]
+    body: "METAL_Body"
 
     def children(self):
         return [*self.parameters, self.body]
 
 @dataclass
-class METAL_Parameter_node(METAL_Ast):
+class METAL_Parameter(METAL_Ast):
     memory_type: str
     type: str
     name: str
 
 @dataclass
-class METAL_Body_node(METAL_Ast):
-    statements: List["METAL_statement_node"]
+class METAL_Body(METAL_Ast):
+    statements: List["METAL_Statement"]
 
     def children(self):
         return [*self.statements]
 
 # base class for statements
-class METAL_Statement_node(METAL_Ast):
+class METAL_Statement(METAL_Ast):
     pass
 
 @dataclass
-class METAL_Declaration_node(METAL_Statement_node):
+class METAL_Declaration(METAL_Statement):
     type: str
     name: str
-    value: Optional["METAL_expression_node"] = None
+    value: Optional["METAL_Expression"] = None
 
 @dataclass
-class METAL_Assignment_node(METAL_Statement_node):
+class METAL_Assignment(METAL_Statement):
     name: str
-    value: "METAL_Expression_node" # forward reference
+    value: "METAL_Expression" # forward reference
 
 # base class for expressions
-class METAL_Expression_node(METAL_Ast):
+class METAL_Expression(METAL_Ast):
     pass
 
 @dataclass
-class METAL_Binary_node(METAL_Expression_node):
+class METAL_Binary(METAL_Expression):
     op: str
-    left: METAL_Expression_node
-    right: METAL_Expression_node
+    left: METAL_Expression
+    right: METAL_Expression
 
 @dataclass
-class METAL_Literal_node(METAL_Expression_node):
+class METAL_Literal(METAL_Expression):
     value: Union[int, float]
 
 @dataclass
-class METAL_Variable_node(METAL_Expression_node):
+class METAL_Variable(METAL_Expression):
     name: str
 
 @dataclass
-class METAL_Array_node(METAL_Expression_node):
-    name: METAL_Variable_node
-    index: METAL_Expression_node
+class METAL_Array(METAL_Expression):
+    name: METAL_Variable
+    index: METAL_Expression
 
 @dataclass
-class METAL_Var_node(METAL_Ast):
+class METAL_Var(METAL_Ast):
     metal_var: str
 
 

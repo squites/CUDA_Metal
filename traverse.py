@@ -1,12 +1,9 @@
-# TODO: implement my own transformer class to visit the parse tree and convert them into AST nodes
-#from ast_builder import CUDA_Ast, Declaration, Assignment, CudaVar, Array, Binary, Variable, Literal
-from ast_builder import METAL_Kernel_node, METAL_Parameter_node, METAL_Body_node, METAL_Var_node, METAL_Declaration_node, METAL_Assignment_node, METAL_Expression_node, METAL_Binary_node, METAL_Literal_node, METAL_Variable_node, METAL_Array_node
-from ast_builder import Parameter, Binary, Literal, Variable
-# Visitor
+from ast_builder import METAL_Kernel, METAL_Parameter, METAL_Body, METAL_Var, METAL_Declaration, METAL_Assignment, METAL_Expression, METAL_Binary, METAL_Literal, METAL_Variable, METAL_Array
+from ast_builder import Parameter, Binary, Literal, CudaVar, Variable, Array
+
 class CUDAVisitor(object): # CUDATraverse()
     """ Traverse the ast nodes """
     def visit(self, node): # 1st call node: <class '__main__.Kernel'>
-        #print(f"Visiting node: {type(node)}")
         method = "visit_" + node.__class__.__name__ # attribute
         visitor = getattr(self, method, self.visit_error) # getattr(obj, attr, default): returns the value of the attribute "attr" of the object "obj". returns a reference of the function "method"
         # visitor = getattr(self, "visit_Kernel")
@@ -15,7 +12,6 @@ class CUDAVisitor(object): # CUDATraverse()
         #print(f"visitor: {visitor} visitor method: {visit_method}")
         return visitor(node) # visit_kernel(ast_builder.Kernel)
 
-    # OK
     def visit_Kernel(self, node):
         print(f"Kernel node: {node}")
         qualifier = "kernel" if node.qualifier == "__global__" else ""
@@ -29,145 +25,126 @@ class CUDAVisitor(object): # CUDATraverse()
                 print(f"Kernel child node: {child}")
                 child_node = self.visit(child)
                 if isinstance(child, Parameter):
-                    params.append(child_node) # append(METAL_Parameter_node)
+                    params.append(child_node) # append(METAL_Parameter)
                 else:
-                    body.append(child_node) # append(METAL_Body_node)
-
-            # generate corresponded METAL node
-            return METAL_Kernel_node(qualifier, type, name, params, body)
+                    body.append(child_node) # append(METAL_Body)
+            return METAL_Kernel(qualifier, type, name, params, body)
         else:
             print(f"Node {node} has no children!")
-            return METAL_Kernel_node(qualifier, type, name, [], [])
+            return METAL_Kernel(qualifier, type, name, [], [])
 
-    # OK   
     def visit_Parameter(self, node):
-        print(f"Parameter node: {node}")
-        #self.visit(node) # no need for this call. self.visit() is only needed when the node has children 
-        return METAL_Parameter_node(memory_type="device", type=node.type, name=node.name)
+        print(f"Parameter node: {node}") # debug
+        return METAL_Parameter(memory_type="device", type=node.type, name=node.name)
 
-    # OK
     def visit_Body(self, node):
         print(f"Body node: {node}") # debug
         if node.children():
             statements = []
             for child in node.children():
                 print(f"Body child node: {child}")
-                # for each child, will return the respective METAL node. Ex: visit(child) = METAL_Declaration_node(type, name, value)
+                # for each child, will return the respective METAL node. Ex: visit(child) = METAL_Declaration(type, name, value)
                 child_node = self.visit(child) # visit(Declaration), visit(Assignment)
                 statements.append(child_node) # this right? It is if child_node is being a METAL node returned by visit methods. Not right if child_node is CUDA node
-            #statements = [METAL_Declaration_node(...), METAL_Assignment_node(...)]
-            return METAL_Body_node(statements)
+            #statements = [METAL_Declaration(...), METAL_Assignment(...)]
+            return METAL_Body(statements)
         else:
             print(f"The node {node} has no children!")
-            return METAL_Body_node(node.statement)
+            return METAL_Body(node.statement)
 
-    # OK
     def visit_Statement(self, node):
         pass
 
-    # TODO OK?
     def visit_Declaration(self, node): #visit_Declaration(Declaration())
         print(f"Declaration node: {node}")
         type = node.type
         name = node.name
-        
         if node.children():
             value = [] # It'll be an Expression(Binary, Literal, Variable, Array)
             for child in node.children():
-                print(f"Declaration child node: {child}")
-                child_node = self.visit(child) # this is equal as: "return METAL_Declaration_node(type, name, value)"
-                #expr = get_expr(child_node) # check if its Binary, Literal, Variable
+                print(f"Declaration child node: {child}") # debug
+                child_node = self.visit(child) # this is equal as: "return METAL_Declaration(type, name, value)"
                 value.append(child_node)
-            return METAL_Declaration_node(type, name, value)
-        
+            return METAL_Declaration(type, name, value)
         else:
             print(f"Node {node} has no children.")
-            return METAL_Declaration_node(type, name, None)
+            return METAL_Declaration(type, name, None)
 
-    # OK
     def visit_Assignment(self, node):
-        print(f"Assigment node: {node}")
-        name = node.name
-        val = node.value #value: Binary(op='+', left=...) must be METAL_Binary_node(op='+', ...)
-        if isinstance(val, Binary): # if val is Binary node
-            metal_op = getattr(val, "op")
-            metal_l = getattr(val, "left")
-            metal_r = getattr(val, "right")
-            metal_node = METAL_Binary_node(metal_op, metal_l, metal_r)
-        elif isinstance(val, Literal):
-            metal_val = getattr(val, "value")
-            metal_node = METAL_Literal_node(metal_val)
-        else:
-            metal_name = getattr(val, "name")
-            metal_node = METAL_Variable_node(metal_name)
+        print(f"Assignment node: {node}")
+        name = self.visit(node.name) if isnode(node.name) else node.name
+        val = self.visit(node.value) if isnode(node.value) else node.value
+        return METAL_Assignment(name, val)
 
-        return METAL_Assignment_node(name, metal_node) # ex: METAL_Assignment_node("x", METAL_Binary_node())
-
-    # OK
-    def visit_Expression(self, node):
-        pass
-
-    # OK
-    def get_expr(self, node):
-        #pass # returns the node (Binary, Literal, Variable)
-        if isinstance(node, Binary):
-            metal_op = getattr(node, "op")
-            metal_l = getattr(node, "left")
-            metal_r = getattr(node, "right")
-            metal_node = METAL_Binary_node(metal_op, metal_l, metal_r)
-        elif isinstance(node, Literal):
-            metal_val = getattr(node, "value")
-            metal_node = METAL_Literal_node(metal_val)
-        else:
-            metal_name = getattr(node, "name")
-            metal_node = METAL_Variable_node(metal_name)
-        # Should I add METAL_Array_node()? Because inherits from METAL_Expression_node
-
-        return metal_node
-
-    # OK
+    #def visit_Expression(self, node):
+    #    pass
+    
     def visit_Binary(self, node):
         print(f"Binary node: {node}")
         metal_op = node.op
-        left = self.get_expr(node.left)
-        right = self.get_expr(node.right)
-        return  METAL_Binary_node(metal_op, left, right)
+        left = self.visit(node.left) if isnode(node.left) else str(node.left)#self.visit(node.left) if isinstance(node.left, Binary) else self.get_expr(node.left)
+        right = self.visit(node.right) if isnode(node.right) else str(node.right)#self.visit(node.right) if isinstance(node.right, Binary) else self.get_expr(node.right)
+        return  METAL_Binary(metal_op, left, right)
 
-    # OK
     def visit_Literal(self, node):
         print(f"Literal node: {node}")
         type = node.type
-        return METAL_Literal_node(type)
+        return METAL_Literal(type)
 
-    # OK
     def visit_Variable(self, node):
         print(f"Variable node: {node}")
         name = node.name
-        return METAL_Variable_node(name)
+        return METAL_Variable(name)
 
-    # OK
     def visit_Array(self, node):
-        print(f"Array node: {node}")
-        array_name = getattr(node.name, "name") # Variable(name)
-        name = METAL_Variable_node(array_name)
-        idx = get_expr(node.index)
-        return METAL_Array_node(name, idx)
+        print(f"Array node: {node}") # debug
+        print(f"name: {type(node.name)}") # debug
+        array_name = self.visit(node.name) if isnode(node.name) else node.name
+        idx = self.visit(node.index)
+        return METAL_Array(array_name, idx)
 
-    # OK
     def visit_CudaVar(self, node):
-        if node.base == "blockIdx":
-            metal_var = "[[threadgroup_position_in_grid]]"
-        elif node.base == "threadIdx":
-            metal_var = "[[thread_position_in_threadgroup"
-        elif node.base == "blockDim":
-            metal_var = "[[threads_per_threadgroup]]"
-        else:
-            metal_var = ""
-
-        return METAL_Var_node(metal_var)
+        print(f"CudaVar node: {node}")
+        metal_var = metal_map(node.base)
+        return METAL_Var(metal_var)
 
     def visit_error(self, node, attr):
         print(f"The node {node} has no attribute named {attr}!") 
+
+# helpers (move this to another file)
+def isnode(node):
+    """ Check if the node that we're visiting has any node as value for any attribute """
+    if isinstance(node, (Binary, Literal, Variable, Array, CudaVar)):
+        return True
+
+def metal_map(cuda_term):
+    """ Maps any CUDA concept syntax into METAL concept syntax"""
+    metal_term = ""
+    match cuda_term:
+        case "blockIdx": 
+            metal_term = "[[threadgroup_position_in_grid]]"
+        case "threadIdx":
+            metal_term = "[[thread_position_in_threadgroup]]"
+        case "blockDim":
+            metal_term = "[[threads_per_threadgroup]]"
+    return metal_term
+
+def get_expr(node):
+    if isinstance(node, Binary):
+        metal_op = getattr(node, "op")
+        metal_l = get_expr(getattr(node, "left")) 
+        metal_r = get_expr(getattr(node, "right"))
+        metal_node = METAL_Binary(metal_op, metal_l, metal_r)
+    elif isinstance(node, Literal):
+        metal_val = getattr(node, "value")
+        metal_node = METAL_Literal(metal_val)
+    elif isinstance(node, CudaVar):
+        metal_base = getattr(node, "base")
+        metal_node = METAL_Var(metal_base)
+    else:
+        metal_name = getattr(node, "name")
+        metal_node = METAL_Variable(metal_map(metal_name))
+    return metal_node
 
 # METAL -> CUDA:
 # Grid        -> Grid

@@ -1,6 +1,6 @@
 from lark import Lark, Transformer
 from grammar import cuda_grammar
-from ast_builder import CUDATransformer #CUDA_ast
+from ast_builder import CUDATransformer, METAL_Ast #CUDA_ast
 from traverse import CUDAVisitor#, metal_mapping
 
 #def validate_input(path: str):
@@ -37,16 +37,20 @@ def main():
     #print(tree.pretty())
 
     # builds cuda ast
+    print("CUDA ast:")
     transformer = CUDATransformer()
     cuda_ast = transformer.transform(parse_tree)
     #print(type(cuda_ast)) # type: <class '__main__.Kernel'>
     cuda_ast.pretty_print() # structured print
     print(cuda_ast)
+    print("\n")
 
     # cuda visitor
+    print("VISITOR:")
     cuda_visitor = CUDAVisitor()
-    cuda_visitor.visit(cuda_ast)
-    print("METAL AST\n", cuda_visitor)
+    metal_ast = cuda_visitor.visit(cuda_ast)
+    print("\nMETAL AST\n", metal_ast)
+    print("\nCUDA AST\n", cuda_ast)
 
 if __name__ == "__main__":
     main()
