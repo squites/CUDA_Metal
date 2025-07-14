@@ -6,7 +6,7 @@ cuda_grammar = r"""
     # kernel signature
     kernel: qualifier "void" identifier "(" params ")" "{" body "}"
     params: [parameter ("," parameter)*]
-    parameter: type identifier
+    parameter: memory_type? type identifier # added memory_type
     body: statement*
     
     statement: declaration ";"
@@ -32,17 +32,20 @@ cuda_grammar = r"""
     factor_ops: FACTOR_OPS
     identifier: NAME
     array_index: identifier ("[" expression "]") # a[i+1]
+    memory_type: MEM_TYPE
     
     # types and ops
     QUALIFIER: "__global__" | "__device__" | "__host__"
-    TYPE: BASE_TYPE "*"?
-    BASE_TYPE: "void" | "int" | "float"
+    TYPE: /int\*?|float\*?|void\*?/ 
+    #TYPE: BASE_TYPE "*"?
+    #BASE_TYPE: "void" | "int" | "float"
     TERM_OPS: "+" | "-"
     FACTOR_OPS: "*" | "/"
     #cuda_var: ("blockIdx" | "blockDim" | "threadIdx") "." ("x" | "y")
     cuda_var: BASE_VAR "." CUDA_DIM
     BASE_VAR: ("blockIdx" | "blockDim" | "threadIdx")
     CUDA_DIM: ("x" | "y")
+    MEM_TYPE: "__shared__" | "__constant__"
 
     # imports 
     %import common.CNAME -> NAME

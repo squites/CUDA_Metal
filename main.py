@@ -2,6 +2,7 @@ from lark import Lark, Transformer
 from grammar import cuda_grammar
 from ast_builder import CUDATransformer, METAL_Ast #CUDA_ast
 from traverse import CUDAVisitor#, metal_mapping
+from codegen import CodeGen
 
 #def validate_input(path: str):
 #    pass
@@ -29,7 +30,6 @@ def main():
         c[idx] = a[idx] + b[idx];  
     }
     """
-
     # parsing
     parser = Lark(cuda_grammar)
     parse_tree = parser.parse(kernel_vecAdd)
@@ -51,6 +51,12 @@ def main():
     metal_ast = cuda_visitor.visit(cuda_ast)
     print("\nMETAL AST\n", metal_ast)
     print("\nCUDA AST\n", cuda_ast)
+
+    # metal code gen
+    print("\nMETAL code generated\n")
+    #gen = CodeGen()
+    #code_str = gen.generator(metal_ast)
+    #print(code_str)
 
 if __name__ == "__main__":
     main()

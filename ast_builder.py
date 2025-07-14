@@ -1,4 +1,4 @@
-from lark import Transformer, Token
+from lark import Transformer, Token, Tree
 from dataclasses import dataclass
 from typing import Union, List, Optional
 
@@ -37,12 +37,13 @@ class Kernel(CUDA_Ast):
 
 @dataclass
 class Parameter(CUDA_Ast):
+    mem_type: Optional[str]# = "__global__"
     type: str
     name: str
 
     def pretty_print(self, indent):
         space = " " * indent
-        print(f"{space}Parameter(type={self.type}, name={self.name})")
+        print(f"{space}Parameter(type={self.type}, name={self.name}, mem_type={self.mem_type})")
 
 @dataclass
 class Body(CUDA_Ast):
@@ -171,8 +172,16 @@ class CUDATransformer(Transformer):
         return items
 
     def parameter(self, items):
-        type, name = items
-        return Parameter(type=type, name=str(name)) # "'list' object has no attribute 'value'". I took off the ".value"
+        if isinstance(items[0], Tree) and items[0].data == "memory_type":
+            mem_type = str(items[0].children[0])
+            type = str(items[1])
+            name = str(items[2])
+        else:
+            mem_type = "__global__"
+            type = str(items[0])
+            name = str(items[1])
+        return Parameter(mem_type=mem_type, type=type, name=name)
+        
 
     def body(self, block):
         return Body(statements=block)
@@ -263,9 +272,11 @@ class METAL_Kernel(METAL_Ast):
 
 @dataclass
 class METAL_Parameter(METAL_Ast):
-    memory_type: str
+    memory_type: str #= None
+    #constant: str = ""
     type: str
     name: str
+    buffer: str # for some parameters we use this buffer
 
 @dataclass
 class METAL_Body(METAL_Ast):
