@@ -7,12 +7,15 @@ class CUDAVisitor(object): # CUDATraverse()
         #self.buffer_idx = -1
         self.kernel_params = []
     
-    def visit(self, node): # 1st call node: <class '__main__.Kernel'>
+    def visit(self, node, idx=0): # 1st call node: <class '__main__.Kernel'>
         method = "visit_" + node.__class__.__name__ # attribute
         visitor = getattr(self, method, self.visit_error) # getattr(obj, attr, default): returns the value of the attribute "attr" of the object "obj". returns a reference of the function "method"
         # visitor = getattr(self, "visit_Kernel")
         # visitor() is the same as self.visit_kernel() for example
         # visitor(node): we pass the root node "Kernel()"" on 1st call.
+        if str(method) == "visit_Parameter": # find a way to remove this and simplify this recursive function
+            return visitor(node, idx)
+        
         return visitor(node) # same as: return visit_kernel(ast_builder.Kernel)
 
     def visit_Kernel(self, node):
@@ -23,14 +26,16 @@ class CUDAVisitor(object): # CUDATraverse()
         
         if node.children():
             #params = []
+            param_idx = -1
             body = []
             for child in node.children():
                 print(f"Kernel child node: {child}")
-                child_node = self.visit(child)
+                param_idx += 1
+                child_node = self.visit(child, idx=param_idx)
                 if isinstance(child, Parameter):
-                    self.kernel_params.append(child_node) # append(METAL_Parameter)
+                    self.kernel_params.append(child_node)
                 else:
-                    body.append(child_node) # append(METAL_Body)
+                    body.append(child_node) 
             return METAL_Kernel(qualifier, type, name, self.kernel_params, body)
         else:
             print(f"Node {node} has no children!")
@@ -38,11 +43,12 @@ class CUDAVisitor(object): # CUDATraverse()
 
     def visit_Parameter(self, node, buffer_idx=0):
         print(f"Parameter node: {node}") # debug
-        #mem_type = "device" if node.mem_type == "__global__" else ""
         mem_type = metal_map(node.mem_type)
-        if node.type == "int*" or "float*":
+        if node.type == "int*" or node.type == "float*":
             #buffer_idx = self.kernel_params.index(node) #get_param_idx(self.kernel_params, node) #+= 1
             buffer = f"[[buffer({buffer_idx})]]"
+        else:
+            buffer = None # when its not a vector, matrix or tensor
         return METAL_Parameter(memory_type=mem_type, type=node.type, name=node.name, buffer=buffer)
 
     def visit_Body(self, node):
