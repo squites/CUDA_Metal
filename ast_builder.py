@@ -196,7 +196,7 @@ class CUDATransformer(Transformer):
 
     def assignment(self, items):
         name, value = items
-        print(f"value type: {type(value)}\n value:{value}")
+        #print(f"value type: {type(value)}\n value:{value}")
         return Assignment(name=name, value=value)
 
     def expression(self, items):
@@ -268,7 +268,7 @@ class METAL_Kernel(METAL_Ast):
     body: "METAL_Body"
 
     def children(self):
-        return [*self.parameters, self.body]
+        return [*self.parameters, *self.body] # dont know why but I added '*' before self.body, and the generator started to understand this as METAL_Body node instead of list.
 
 @dataclass
 class METAL_Parameter(METAL_Ast):
@@ -293,7 +293,10 @@ class METAL_Statement(METAL_Ast):
 class METAL_Declaration(METAL_Statement):
     type: str
     name: str
-    value: Optional["METAL_Expression"] = None
+    value: Optional["METAL_Expression"] = None # is generating a list value=[METAL_Binary(...)] while in cuda_ast generates value=Binary(...)
+
+    def children(self):
+        return [*self.value] if self.value is not None else [] # when adding '*', removes the "[]" for some reason
 
 @dataclass
 class METAL_Assignment(METAL_Statement):

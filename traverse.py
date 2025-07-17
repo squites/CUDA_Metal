@@ -6,6 +6,7 @@ class CUDAVisitor(object): # CUDATraverse()
     def __init__(self):
         #self.buffer_idx = -1
         self.kernel_params = []
+        self.body = []
     
     def visit(self, node, idx=0): # 1st call node: <class '__main__.Kernel'>
         method = "visit_" + node.__class__.__name__ # attribute
@@ -14,12 +15,12 @@ class CUDAVisitor(object): # CUDATraverse()
         # visitor() is the same as self.visit_kernel() for example
         # visitor(node): we pass the root node "Kernel()"" on 1st call.
         if str(method) == "visit_Parameter": # find a way to remove this and simplify this recursive function
-            return visitor(node, idx)
+            return visitor(node, idx) # index for [[buffer(idx)]]
         
         return visitor(node) # same as: return visit_kernel(ast_builder.Kernel)
 
     def visit_Kernel(self, node):
-        print(f"Kernel node: {node}")
+        #print(f"Kernel node: {node}")
         qualifier = "kernel" if node.qualifier == "__global__" else ""
         type = node.type
         name = node.name
@@ -29,7 +30,7 @@ class CUDAVisitor(object): # CUDATraverse()
             param_idx = -1
             body = []
             for child in node.children():
-                print(f"Kernel child node: {child}")
+                #print(f"Kernel child node: {child}")
                 param_idx += 1
                 child_node = self.visit(child, idx=param_idx)
                 if isinstance(child, Parameter):
@@ -38,11 +39,11 @@ class CUDAVisitor(object): # CUDATraverse()
                     body.append(child_node) 
             return METAL_Kernel(qualifier, type, name, self.kernel_params, body)
         else:
-            print(f"Node {node} has no children!")
+            #print(f"Node {node} has no children!")
             return METAL_Kernel(qualifier, type, name, [], [])
 
     def visit_Parameter(self, node, buffer_idx=0):
-        print(f"Parameter node: {node}") # debug
+        #print(f"Parameter node: {node}") # debug
         mem_type = metal_map(node.mem_type)
         if node.type == "int*" or node.type == "float*":
             #buffer_idx = self.kernel_params.index(node) #get_param_idx(self.kernel_params, node) #+= 1
@@ -52,40 +53,40 @@ class CUDAVisitor(object): # CUDATraverse()
         return METAL_Parameter(memory_type=mem_type, type=node.type, name=node.name, buffer=buffer)
 
     def visit_Body(self, node):
-        print(f"Body node: {node}") # debug
+        #print(f"Body node: {node}") # debug
         if node.children():
             statements = []
             for child in node.children():
-                print(f"Body child node: {child}")
+                #print(f"Body child node: {child}")
                 # for each child, will return the respective METAL node. Ex: visit(child) = METAL_Declaration(type, name, value)
                 child_node = self.visit(child) # visit(Declaration), visit(Assignment)
                 statements.append(child_node) # this right? It is if child_node is being a METAL node returned by visit methods. Not right if child_node is CUDA node
             #statements = [METAL_Declaration(...), METAL_Assignment(...)]
             return METAL_Body(statements)
         else:
-            print(f"The node {node} has no children!")
+            #print(f"The node {node} has no children!")
             return METAL_Body(node.statement)
 
     def visit_Statement(self, node):
         pass
 
     def visit_Declaration(self, node): #visit_Declaration(Declaration())
-        print(f"Declaration node: {node}")
+        #print(f"Declaration node: {node}")
         type = node.type
         name = node.name
         if node.children():
-            value = [] # It'll be an Expression(Binary, Literal, Variable, Array)
+            value = [] # = Expression(Binary, Literal, Variable, Array)
             for child in node.children():
-                print(f"Declaration child node: {child}") # debug
+                #print(f"Declaration child node: {child}") # debug
                 child_node = self.visit(child) # this is equal as: "return METAL_Declaration(type, name, value)"
                 value.append(child_node)
             return METAL_Declaration(type, name, value)
         else:
-            print(f"Node {node} has no children.")
+            #print(f"Node {node} has no children.")
             return METAL_Declaration(type, name, None)
 
     def visit_Assignment(self, node):
-        print(f"Assignment node: {node}")
+        #print(f"Assignment node: {node}")
         name = self.visit(node.name) if isnode(node.name) else node.name
         val = self.visit(node.value) if isnode(node.value) else node.value
         return METAL_Assignment(name, val)
@@ -94,31 +95,31 @@ class CUDAVisitor(object): # CUDATraverse()
     #    pass
     
     def visit_Binary(self, node):
-        print(f"Binary node: {node}")
+        #print(f"Binary node: {node}")
         metal_op = node.op
-        left = self.visit(node.left) if isnode(node.left) else str(node.left)#self.visit(node.left) if isinstance(node.left, Binary) else self.get_expr(node.left)
-        right = self.visit(node.right) if isnode(node.right) else str(node.right)#self.visit(node.right) if isinstance(node.right, Binary) else self.get_expr(node.right)
+        left = self.visit(node.left) if isnode(node.left) else str(node.left)
+        right = self.visit(node.right) if isnode(node.right) else str(node.right)
         return  METAL_Binary(metal_op, left, right)
 
     def visit_Literal(self, node):
-        print(f"Literal node: {node}")
+        #print(f"Literal node: {node}")
         type = node.type
         return METAL_Literal(type)
 
     def visit_Variable(self, node):
-        print(f"Variable node: {node}")
+        #print(f"Variable node: {node}")
         name = node.name
         return METAL_Variable(name)
 
     def visit_Array(self, node):
-        print(f"Array node: {node}") # debug
-        print(f"name: {type(node.name)}") # debug
+        #print(f"Array node: {node}") # debug
+        #print(f"name: {type(node.name)}") # debug
         array_name = self.visit(node.name) if isnode(node.name) else node.name
         idx = self.visit(node.index)
         return METAL_Array(array_name, idx)
 
     def visit_CudaVar(self, node):
-        print(f"CudaVar node: {node}")
+        #print(f"CudaVar node: {node}")
         metal_var = metal_map(node.base)
         return METAL_Var(metal_var)
 
@@ -128,7 +129,9 @@ class CUDAVisitor(object): # CUDATraverse()
 # helpers (move this to another file)
 def isnode(node):
     """ Check if the node that we're visiting has any node as value for any attribute """
-    if isinstance(node, (Binary, Literal, Variable, Array, CudaVar)):
+    if isinstance(node, (Binary, Literal, Variable, Array, CudaVar,
+                         METAL_Binary, METAL_Literal, METAL_Variable, 
+                         METAL_Array, METAL_Var)):
         return True
 
 def metal_map(cuda_term):

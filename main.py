@@ -42,21 +42,20 @@ def main():
     cuda_ast = transformer.transform(parse_tree)
     #print(type(cuda_ast)) # type: <class '__main__.Kernel'>
     cuda_ast.pretty_print() # structured print
-    print(cuda_ast)
-    print("\n")
+    #print(cuda_ast, "\n")
 
     # cuda visitor
-    print("VISITOR:")
+    #print("VISITOR:")
     cuda_visitor = CUDAVisitor()
     metal_ast = cuda_visitor.visit(cuda_ast)
-    print("\nMETAL AST\n", metal_ast)
     print("\nCUDA AST\n", cuda_ast)
+    print("\nMETAL AST\n", metal_ast)
 
     # metal code gen
-    print("\nMETAL code generated\n")
-    #gen = CodeGen()
-    #code_str = gen.generator(metal_ast)
-    #print(code_str)
+    gen = CodeGen()
+    metal_code_str = gen.generator(metal_ast)
+    print(f"\nCUDA kernel:\n{kernel_vecAdd}")
+    print(f"\nMETAL kernel generated:\n{metal_code_str}")
 
 if __name__ == "__main__":
     main()
