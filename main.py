@@ -25,7 +25,7 @@ from codegen import CodeGen
 def main():
     # move this to a .cu file 
     kernel_vecAdd = r"""
-    __global__ void vecAdd(int* a, int* b, int* c) {
+    __global__ void vecAdd(float* a, float* b, float* c) {
         int idx = blockIdx.x * blockDim.x + threadIdx.x;
         c[idx] = a[idx] + b[idx];  
     }
@@ -57,5 +57,18 @@ def main():
     print(f"\nCUDA kernel:\n{kernel_vecAdd}")
     print(f"\nMETAL kernel generated:\n{metal_code_str}")
 
+    # writing in a file
+    filename = "vecAdd.metal"
+    with open(filename, "x") as f:
+        f.write(metal_code_str)
+
+
 if __name__ == "__main__":
     main()
+
+
+# TODO:
+# - generate a diverse set of cuda kernels, exploring multiple optimizations
+#   using a hand-written metal dispatcher (for now)
+# - then run and profile the metal kernel, comparing cuda and metal kernels results
+#   and performance.

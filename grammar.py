@@ -3,6 +3,8 @@ from lark import Lark
 cuda_grammar = r"""
     start: kernel*
 
+    # import: "#include <" name ">"
+
     # kernel signature
     kernel: qualifier "void" identifier "(" params ")" "{" body "}"
     params: [parameter ("," parameter)*]
