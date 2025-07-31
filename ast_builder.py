@@ -38,12 +38,18 @@ class Kernel(CUDA_Ast):
 @dataclass
 class Parameter(CUDA_Ast):
     mem_type: Optional[str]# = "__global__"
+    #const: Optional[str] # need to treat when params are "const"
     type: str
     name: str
 
+    #def pretty_print(self, indent):
+    #    space = " " * indent
+    #    print(f"{space}Parameter(type={self.type}, name={self.name}, mem_type={self.mem_type}, const={self.const})")
+
     def pretty_print(self, indent):
         space = " " * indent
-        print(f"{space}Parameter(type={self.type}, name={self.name}, mem_type={self.mem_type})")
+        print(f"{space}Parameter(mem_type={self.mem_type}, type={self.type}, name={self.name})")
+
 
 @dataclass
 class Body(CUDA_Ast):
@@ -171,18 +177,27 @@ class CUDATransformer(Transformer):
     def params(self, items):
         return items
 
+    # working
     def parameter(self, items):
-        if isinstance(items[0], Tree) and items[0].data == "memory_type":
-            mem_type = str(items[0].children[0])
+        #if isinstance(items[0], Tree) and items[0].data == "MEM_TYPE":
+        #    mem_type = str(items[0].children[0])
+        #    type = str(items[1])
+        #    name = str(items[2])
+        mem_type = "__global__"
+        if len(items) == 3 and str(items[0]) == "__shared__" or str(items[0]) == "__constant__":
+            mem_type = str(items[0])
             type = str(items[1])
             name = str(items[2])
+        elif str(items[0]) == "const" or str(items[1]) == "const":
+            # add constant here eventually
+            type = str(items[1]) if len(items) == 3 else str(items[2])
+            name = str(items[2]) if len(items) == 3 else str(items[3])
         else:
-            mem_type = "__global__"
+            #mem_type = "__global__"
             type = str(items[0])
             name = str(items[1])
         return Parameter(mem_type=mem_type, type=type, name=name)
         
-
     def body(self, block):
         return Body(statements=block)
 
@@ -238,6 +253,9 @@ class CUDATransformer(Transformer):
     
     def identifier(self, token):
         return token[0] #.value
+
+    def memory_type(self, token):
+        return token[0].value
 
     def array_index(self, items):
         name, index = items
@@ -352,7 +370,7 @@ class METAL_Var(METAL_Ast):
 #
 # Imagine we have:
 # Tree(Token('RULE', 'qualifier'), [Token('QUALIFIER', '__global__')])
-# 1) - data field is a Token('RULE', 'qualifier'), which means that the rule_name is 'qualifier'
+# 1) - data is a Token('RULE', 'qualifier'), which means that the rule_name is 'qualifier'
 #    - has one child [Token('QUALIFIER', '__global__')], which is a terminal token with the string '__global__'
 #
 # 2) Transformer sees the Tree(...)
