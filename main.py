@@ -1,7 +1,7 @@
 from lark import Lark, Transformer
 from grammar import cuda_grammar
-from ast_builder import CUDATransformer, METAL_Ast #CUDA_ast
-from traverse import CUDAVisitor#, metal_mapping
+from ast_builder import CUDATransformer
+from traverse import CUDAVisitor
 from codegen import CodeGen
 
 #def validate_input(path: str):
@@ -23,18 +23,16 @@ from codegen import CodeGen
 #    pass
 
 def main():
-    # move this to a .cu file 
-    kernel_vecAdd = r"""
-    __global__ void vecAdd(float* a, float* b, float* c) {
-        int idx = blockIdx.x * blockDim.x + threadIdx.x;
-        c[idx] = a[idx] + b[idx];  
-    }
-    """
+    # TODO:
+    # naive matmul kernel
+    with open("./examples/vecAdd.cu", "r") as f: # maybe create a function that generates the respective metal to all ./examples cuda kernels
+        kernel_vecAdd = f.read()
+
     # parsing
     parser = Lark(cuda_grammar)
     parse_tree = parser.parse(kernel_vecAdd)
     #print(f"parse tree: {tree}") # type: <class 'lark.tree.Tree'>
-    #print(tree.pretty())
+    print(parse_tree.pretty())
 
     # builds cuda ast
     print("CUDA ast:")
@@ -45,22 +43,22 @@ def main():
     #print(cuda_ast, "\n")
 
     # cuda visitor
-    #print("VISITOR:")
+    print("VISITOR:")
     cuda_visitor = CUDAVisitor()
     metal_ast = cuda_visitor.visit(cuda_ast)
     print("\nCUDA AST\n", cuda_ast)
     print("\nMETAL AST\n", metal_ast)
 
     # metal code gen
-    gen = CodeGen()
-    metal_code_str = gen.generator(metal_ast)
-    print(f"\nCUDA kernel:\n{kernel_vecAdd}")
-    print(f"\nMETAL kernel generated:\n{metal_code_str}")
+    #gen = CodeGen()
+    #metal_code_str = gen.generator(metal_ast)
+    #print(f"\nCUDA kernel:\n{kernel_vecAdd}")
+    #print(f"\nMETAL kernel generated:\n{metal_code_str}")
 
     # writing in a file
-    filename = "vecAdd.metal"
-    with open(filename, "x") as f:
-        f.write(metal_code_str)
+    #filename = "vecAdd.metal"
+    #with open(filename, "x") as f:
+    #    f.write(metal_code_str)
 
 
 if __name__ == "__main__":

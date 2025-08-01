@@ -93,6 +93,7 @@ class CodeGen():
         left = self.generator(node.left) if isnode(node.left) else str(node.left)
         right = self.generator(node.right) if isnode(node.right) else node.right
         binary_str = f"{left} {op} {right}"
+        # need to put this in parameter later
         if binary_str == "[[threadgroup_position_in_grid]] * [[threads_per_threadgroup]] + [[thread_position_in_threadgroup]]":
             binary_str = "[[thread_position_in_grid]]" # gambiarra (fix later!!!!)
         #print(f"binary_str: {binary_str}")

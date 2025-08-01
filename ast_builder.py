@@ -98,6 +98,21 @@ class Assignment(Statement):
         print(f"{space}value={self.value}")
         print("    )")
 
+@dataclass
+class IfStatement(Statement):
+    condition: "Expression" # expression
+    if_body: List[Statement] # statement* 
+
+    def children(self):
+        return [*self.if_body]
+
+    def pretty_print(self, indent=0):
+        space = " " * (indent+2)
+        print("    IfStatement(")
+        print(f"{space*2}condition={self.condition},")
+        print(f"{space*2}if_body={self.if_body}")
+        print("    )")
+
 # base class for expressions. Base classes define a common type
 class Expression(CUDA_Ast):
     pass
@@ -177,12 +192,7 @@ class CUDATransformer(Transformer):
     def params(self, items):
         return items
 
-    # working
     def parameter(self, items):
-        #if isinstance(items[0], Tree) and items[0].data == "MEM_TYPE":
-        #    mem_type = str(items[0].children[0])
-        #    type = str(items[1])
-        #    name = str(items[2])
         mem_type = "__global__"
         if len(items) == 3 and str(items[0]) == "__shared__" or str(items[0]) == "__constant__":
             mem_type = str(items[0])
@@ -193,7 +203,6 @@ class CUDATransformer(Transformer):
             type = str(items[1]) if len(items) == 3 else str(items[2])
             name = str(items[2]) if len(items) == 3 else str(items[3])
         else:
-            #mem_type = "__global__"
             type = str(items[0])
             name = str(items[1])
         return Parameter(mem_type=mem_type, type=type, name=name)
@@ -213,6 +222,10 @@ class CUDATransformer(Transformer):
         name, value = items
         #print(f"value type: {type(value)}\n value:{value}")
         return Assignment(name=name, value=value)
+
+    def if_statement(self, items):
+        condition, if_body = items
+        return IfStatement(condition=condition, if_body=if_body)
 
     def expression(self, items):
         if len(items) == 1: # single term
@@ -249,6 +262,9 @@ class CUDATransformer(Transformer):
         return token[0].value
 
     def factor_ops(self, token):
+        return token[0].value
+
+    def logical_ops(self, token):
         return token[0].value
     
     def identifier(self, token):
@@ -320,6 +336,14 @@ class METAL_Declaration(METAL_Statement):
 class METAL_Assignment(METAL_Statement):
     name: str
     value: "METAL_Expression" # forward reference
+
+@dataclass
+class METAL_IfStatement(METAL_Statement):
+    condition: "METAL_Expression"
+    if_body: METAL_Statement
+
+    def children(self):
+        return [*self.if_body]
 
 # base class for expressions
 class METAL_Expression(METAL_Ast):

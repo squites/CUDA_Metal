@@ -3,7 +3,8 @@ from lark import Lark
 cuda_grammar = r"""
     start: kernel*
 
-    # import: "#include <" name ">"
+    # import: "#include"("<"|"\"") name (">" | "\"")
+    # lib: 
 
     # kernel signature
     kernel: qualifier "void" identifier "(" params ")" "{" body "}"
@@ -13,11 +14,15 @@ cuda_grammar = r"""
     
     statement: declaration ";"
              | assignment  ";"
+             | if_statement 
+             #| while_statement
 
+    if_statement: "if (" expression ") {" statement* "}" #("else {" statement* "}")?
+    
     # statements
     declaration: type identifier ("=" expression)? # var declaration 
     assignment: (array_index | identifier) "=" expression
-    expression: term (term_ops term)*
+    expression: term ((term_ops | logical_ops) term)*
 
     term: factor (factor_ops factor)*
     
@@ -32,6 +37,7 @@ cuda_grammar = r"""
     type: TYPE
     term_ops: TERM_OPS
     factor_ops: FACTOR_OPS
+    logical_ops: LOGICAL_OPS
     identifier: NAME
     array_index: identifier ("[" expression "]") # a[i+1]
     memory_type: MEM_TYPE
@@ -40,11 +46,10 @@ cuda_grammar = r"""
     # types and ops
     QUALIFIER: "__global__" | "__device__" | "__host__"
     TYPE: /int\*?|float\*?|void\*?/ 
-    #TYPE: BASE_TYPE "*"?
-    #BASE_TYPE: "void" | "int" | "float"
+    #TERM_OPS: "+" | "-" | "*" | "/"
     TERM_OPS: "+" | "-"
     FACTOR_OPS: "*" | "/"
-    #cuda_var: ("blockIdx" | "blockDim" | "threadIdx") "." ("x" | "y")
+    LOGICAL_OPS: "==" | ">" | "<" | ">=" | "<=" | "!="
     cuda_var: BASE_VAR "." CUDA_DIM
     BASE_VAR: ("blockIdx" | "blockDim" | "threadIdx")
     CUDA_DIM: ("x" | "y")
