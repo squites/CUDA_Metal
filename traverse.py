@@ -1,4 +1,4 @@
-from ast_builder import METAL_Kernel, METAL_Parameter, METAL_Body, METAL_Var, METAL_Declaration, METAL_Assignment, METAL_IfStatement, METAL_Binary, METAL_Literal, METAL_Variable, METAL_Array
+from ast_builder import METAL_Kernel, METAL_Parameter, METAL_Body, METAL_Var, METAL_Declaration, METAL_Assignment, METAL_IfStatement, METAL_Binary, METAL_Literal, METAL_Variable, METAL_Array, METAL_Program
 from ast_builder import Parameter, Binary, Literal, CudaVar, Variable, Array
 
 class CUDAVisitor(object): # CUDATraverse()
@@ -16,8 +16,15 @@ class CUDAVisitor(object): # CUDATraverse()
         # visitor(node): we pass the root node "Kernel()"" on 1st call.
         if str(method) == "visit_Parameter": # find a way to remove this and simplify this recursive function
             return visitor(node, idx) # index for [[buffer(idx)]]
-        print(f"method: {method}, visitor: {visitor}")
         return visitor(node) # same as: return visit_kernel(ast_builder.Kernel)
+
+    def visit_CUDA_Program(self, node):
+        #if node.header is None:
+        #    lib = "oi"
+        #else:
+        lib = node.header
+        kernel = self.visit(node.kernel)
+        return METAL_Program(header=lib, kernel=kernel)
 
     def visit_Kernel(self, node):
         #print(f"Kernel node: {node}")
@@ -93,12 +100,13 @@ class CUDAVisitor(object): # CUDATraverse()
 
     def visit_IfStatement(self, node):
         print(f"If node: {node}")
-        condition = node.condition
+        cond = self.visit(node.condition)
         body = []
-        for child in node.children():
-            child_node = self.visit(child)
-            body.append(child_node)
-        return METAL_IfStatement(condition=condition, if_body=body)
+        if node.children():
+            for child in node.children():
+                child_node = self.visit(child)
+                body.append(child_node)
+        return METAL_IfStatement(condition=cond, if_body=body)
 
     #def visit_Expression(self, node):
     #    pass

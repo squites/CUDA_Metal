@@ -32,15 +32,16 @@ def main():
     parser = Lark(cuda_grammar)
     parse_tree = parser.parse(kernel_vecAdd)
     #print(f"parse tree: {tree}") # type: <class 'lark.tree.Tree'>
-    print(parse_tree.pretty())
+    #print(parse_tree.pretty())
+    print(parse_tree)
 
     # builds cuda ast
     print("CUDA ast:")
     transformer = CUDATransformer()
     cuda_ast = transformer.transform(parse_tree)
     #print(type(cuda_ast)) # type: <class '__main__.Kernel'>
-    cuda_ast.pretty_print() # structured print
-    #print(cuda_ast, "\n")
+    #cuda_ast.pretty_print() # structured print
+    print(cuda_ast, "\n")
 
     # cuda visitor
     print("VISITOR:")
@@ -50,10 +51,10 @@ def main():
     print("\nMETAL AST\n", metal_ast)
 
     # metal code gen
-    #gen = CodeGen()
-    #metal_code_str = gen.generator(metal_ast)
-    #print(f"\nCUDA kernel:\n{kernel_vecAdd}")
-    #print(f"\nMETAL kernel generated:\n{metal_code_str}")
+    gen = CodeGen()
+    metal_code_str = gen.generator(metal_ast)
+    print(f"\nCUDA kernel:\n{kernel_vecAdd}")
+    print(f"\nMETAL kernel generated:\n{metal_code_str}")
 
     # writing in a file
     #filename = "vecAdd.metal"

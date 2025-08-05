@@ -18,11 +18,26 @@ class CodeGen():
         #print(f"node: {node}") #debug
         method = "gen_" + node.__class__.__name__
         gen = getattr(self, method, self.gen_error)
-        #print(f"method: {method}") #debug
+        print(f"method: {method}") #debug
         return gen(node)
 
     def gen_error(self):
         print("Error!")
+
+    def gen_METAL_Program(self, node):
+        if node.header == None:
+            header = "#include <metal_stdlib>"
+            namespace = "using namespace metal"
+            #kernel = self.generator(node.kernel)
+            kernel = self.generator(node.kernel)
+        return f"{header}\n{namespace};\n{kernel}"
+
+    #def gen_METAL_Library(self, node):
+    #    libstr = "#include <"
+    #    namespace = "using namespace metal;\n"
+    #    for lib in node.library:
+    #        libstr = libstr + str(lib) + ">\n"
+    #    return libstr + namespace
 
     def gen_METAL_Kernel(self, node, tab=2):
         indent = " " * (tab)
@@ -45,7 +60,7 @@ class CodeGen():
                     #print(f"s: {s}") #debug
                     i += 1
                 else:
-                    s = child_node_str + ";"
+                    s = child_node_str# + ";"
                 metal_code = metal_code + s 
         self.metal_str = metal_code + "\n}"
         return self.metal_str
@@ -54,7 +69,8 @@ class CodeGen():
         memory_type = node.memory_type
         type = node.type
         name = node.name
-        code_str = f"{str(memory_type)} {str(type)} {str(name)} {str(node.buffer)}"
+        buff = "" if not node.buffer else str(node.buffer)
+        code_str = f"{str(memory_type)} {str(type)} {str(name)} {str(buff)}"
         return code_str 
 
     def gen_METAL_Body(self, node):
@@ -86,6 +102,19 @@ class CodeGen():
         assignment_str = f"{name} = {val}"
         return "    " + assignment_str
 
+    def gen_METAL_IfStatement(self, node):
+        indent = " " * 4
+        cond = self.generator(node.condition) # idx < n
+        ifstr = indent + "if (" + cond + ") {\n"
+        bodystr = f"{indent}"
+        for b in node.if_body:
+            body = self.generator(b)
+            #print(body)
+            bodystr = bodystr + str(body) + ";\n"
+        #bodystr = bodystr + ";\n"
+
+        return ifstr + bodystr + indent + "}"
+    
     # ex: METAL_Binary(op='+',left=METAL_Variable(name='a'), right='b')
     def gen_METAL_Binary(self, node): 
         op = node.op

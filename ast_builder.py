@@ -1,6 +1,6 @@
 from lark import Transformer, Token, Tree
 from dataclasses import dataclass
-from typing import Union, List, Optional
+from typing import Union, List, Optional, Iterable
 
 # classes for nodes of the Abstract Syntax Tree. So each class is an Object that will be a node when called.
 class CUDA_Ast:
@@ -9,6 +9,18 @@ class CUDA_Ast:
 
     def pretty_print(self, indent=0):
         raise NotImplementedError
+
+@dataclass
+class CUDA_Program(CUDA_Ast):
+    header: Optional[str]
+    kernel: "Kernel"
+
+    def pretty_print(self, indent=0):
+        space = " " * indent
+        print("Program(")
+        print("library")
+        print("kernel")
+        print(")")
 
 # semantic classes
 @dataclass
@@ -104,7 +116,7 @@ class IfStatement(Statement):
     if_body: List[Statement] # statement* 
 
     def children(self):
-        return [*self.if_body]
+        return [self.if_body] #if self.if_body is not None else []
 
     def pretty_print(self, indent=0):
         space = " " * (indent+2)
@@ -185,6 +197,18 @@ class CUDATransformer(Transformer):
     def start(self, items):
         return items[0]
     
+    def program(self, items):
+        if len(items) > 1:
+            header, kernel = items
+        else:
+            header = None
+            kernel = items[0]
+        return CUDA_Program(header=header, kernel=kernel)
+    
+    #def library(self, items):
+    #    lib = str(items)
+    #    return Library(library=lib)
+
     def kernel(self, items):
         qualifier, name, params, body = items
         return Kernel(qualifier=qualifier, type="void", name=str(name), parameters=params, body=body)
@@ -294,6 +318,11 @@ class METAL_Ast():
         return []
 
 @dataclass
+class METAL_Program(METAL_Ast):
+    header: str
+    kernel: "METAL_Kernel"
+
+@dataclass
 class METAL_Kernel(METAL_Ast):
     qualifier: str
     type: str
@@ -340,7 +369,7 @@ class METAL_Assignment(METAL_Statement):
 @dataclass
 class METAL_IfStatement(METAL_Statement):
     condition: "METAL_Expression"
-    if_body: METAL_Statement
+    if_body: List[METAL_Statement]
 
     def children(self):
         return [*self.if_body]
@@ -371,7 +400,6 @@ class METAL_Array(METAL_Expression):
 @dataclass
 class METAL_Var(METAL_Ast):
     metal_var: str
-
 
 
 # ------------------------------ DOC ---------------------------------

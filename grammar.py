@@ -1,10 +1,11 @@
 from lark import Lark
 
 cuda_grammar = r"""
-    start: kernel*
-
-    # import: "#include"("<"|"\"") name (">" | "\"")
-    # lib: 
+    #start: kernel*
+    start: program
+    program: ("\#include\<"NAME"\>")? kernel*
+    #library: HASH "include" "\<" NAME "\>"
+    #library: NAME 
 
     # kernel signature
     kernel: qualifier "void" identifier "(" params ")" "{" body "}"
@@ -55,6 +56,7 @@ cuda_grammar = r"""
     CUDA_DIM: ("x" | "y")
     MEM_TYPE: "__shared__" | "__constant__"
     #CONST: "const"
+    HASH: "\#"
 
     # imports 
     %import common.CNAME -> NAME
