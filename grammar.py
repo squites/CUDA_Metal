@@ -16,13 +16,15 @@ cuda_grammar = r"""
     statement: declaration ";"
              | assignment  ";"
              | if_statement 
+             | for_statement
              #| while_statement
 
     if_statement: "if (" expression ") {" statement* "}" #("else {" statement* "}")?
+    for_statement: "for (" (declaration | assignment) "; " expression "; " assignment ") {" statement* "}"
     
     # statements
     declaration: type identifier ("=" expression)? # var declaration 
-    assignment: (array_index | identifier) "=" expression
+    assignment: (array_index | identifier) ("=" | "+=" | "++") expression
     expression: term ((term_ops | logical_ops) term)*
 
     term: factor (factor_ops factor)*
@@ -47,16 +49,13 @@ cuda_grammar = r"""
     # types and ops
     QUALIFIER: "__global__" | "__device__" | "__host__"
     TYPE: /int\*?|float\*?|void\*?/ 
-    #TERM_OPS: "+" | "-" | "*" | "/"
     TERM_OPS: "+" | "-"
     FACTOR_OPS: "*" | "/"
-    LOGICAL_OPS: "==" | ">" | "<" | ">=" | "<=" | "!="
+    LOGICAL_OPS: "==" | ">" | "<" | ">=" | "<=" | "!=" | "&&"
     cuda_var: BASE_VAR "." CUDA_DIM
     BASE_VAR: ("blockIdx" | "blockDim" | "threadIdx")
     CUDA_DIM: ("x" | "y")
     MEM_TYPE: "__shared__" | "__constant__"
-    #CONST: "const"
-    HASH: "\#"
 
     # imports 
     %import common.CNAME -> NAME

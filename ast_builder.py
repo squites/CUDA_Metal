@@ -53,6 +53,7 @@ class Parameter(CUDA_Ast):
     #const: Optional[str] # need to treat when params are "const"
     type: str
     name: str
+    #value: str
 
     #def pretty_print(self, indent):
     #    space = " " * indent
@@ -124,6 +125,26 @@ class IfStatement(Statement):
         print(f"{space*2}condition={self.condition},")
         print(f"{space*2}if_body={self.if_body}")
         print("    )")
+
+@dataclass
+class ForStatement(Statement):
+    initialization: Declaration
+    condition: "Expression"
+    increment: Assignment
+    forBody: List[Statement]
+
+    def children(self):
+        return [self.forBody]
+    
+    def pretty_print(self, indent=0):
+        space = " " * (indent+2)
+        print("    ForStatement(")
+        print(f"{space*2}initialization={self.initialization},")
+        print(f"{space*2}condition={self.condition},")
+        print(f"{space*2}increment={self.increment},")
+        print(f"{space*2}forBody={self.forBody}")
+        print("    )")
+
 
 # base class for expressions. Base classes define a common type
 class Expression(CUDA_Ast):
@@ -250,6 +271,10 @@ class CUDATransformer(Transformer):
     def if_statement(self, items):
         condition, if_body = items
         return IfStatement(condition=condition, if_body=if_body)
+
+    def forStatement(self, items):
+        init, cond, incr, forBody = items
+        return ForStatement(initialization=init, condition=cond, increment=incr, forBody=forBody)
 
     def expression(self, items):
         if len(items) == 1: # single term

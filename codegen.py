@@ -18,7 +18,7 @@ class CodeGen():
         #print(f"node: {node}") #debug
         method = "gen_" + node.__class__.__name__
         gen = getattr(self, method, self.gen_error)
-        print(f"method: {method}") #debug
+        #print(f"method: {method}") #debug
         return gen(node)
 
     def gen_error(self):
@@ -31,13 +31,6 @@ class CodeGen():
             #kernel = self.generator(node.kernel)
             kernel = self.generator(node.kernel)
         return f"{header}\n{namespace};\n{kernel}"
-
-    #def gen_METAL_Library(self, node):
-    #    libstr = "#include <"
-    #    namespace = "using namespace metal;\n"
-    #    for lib in node.library:
-    #        libstr = libstr + str(lib) + ">\n"
-    #    return libstr + namespace
 
     def gen_METAL_Kernel(self, node, tab=2):
         indent = " " * (tab)

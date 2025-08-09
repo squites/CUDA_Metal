@@ -44,17 +44,17 @@ def main():
     print(cuda_ast, "\n")
 
     # cuda visitor
-    print("VISITOR:")
-    cuda_visitor = CUDAVisitor()
-    metal_ast = cuda_visitor.visit(cuda_ast)
-    print("\nCUDA AST\n", cuda_ast)
-    print("\nMETAL AST\n", metal_ast)
+    #print("VISITOR:")
+    #cuda_visitor = CUDAVisitor()
+    #metal_ast = cuda_visitor.visit(cuda_ast)
+    #print("\nCUDA AST\n", cuda_ast)
+    ##print("\nMETAL AST\n", metal_ast)
 
     # metal code gen
-    gen = CodeGen()
-    metal_code_str = gen.generator(metal_ast)
-    print(f"\nCUDA kernel:\n{kernel_vecAdd}")
-    print(f"\nMETAL kernel generated:\n{metal_code_str}")
+    #gen = CodeGen()
+    #metal_code_str = gen.generator(metal_ast)
+    #print(f"\nCUDA kernel:\n{kernel_vecAdd}")
+    #print(f"\nMETAL kernel generated:\n{metal_code_str}")
 
     # writing in a file
     #filename = "vecAdd.metal"
