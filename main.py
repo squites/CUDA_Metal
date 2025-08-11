@@ -25,7 +25,7 @@ from codegen import CodeGen
 def main():
     # TODO:
     # naive matmul kernel
-    with open("./examples/vecAdd.cu", "r") as f: # maybe create a function that generates the respective metal to all ./examples cuda kernels
+    with open("./examples/naive_matmul.cu", "r") as f: # maybe create a function that generates the respective metal to all ./examples cuda kernels
         kernel_vecAdd = f.read()
 
     # parsing
@@ -44,11 +44,11 @@ def main():
     print(cuda_ast, "\n")
 
     # cuda visitor
-    #print("VISITOR:")
-    #cuda_visitor = CUDAVisitor()
-    #metal_ast = cuda_visitor.visit(cuda_ast)
-    #print("\nCUDA AST\n", cuda_ast)
-    ##print("\nMETAL AST\n", metal_ast)
+    print("VISITOR:")
+    cuda_visitor = CUDAVisitor()
+    metal_ast = cuda_visitor.visit(cuda_ast)
+    print("\nCUDA AST\n", cuda_ast)
+    print("\nMETAL AST\n", metal_ast)
 
     # metal code gen
     #gen = CodeGen()

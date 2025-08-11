@@ -21,10 +21,10 @@ cuda_grammar = r"""
 
     if_statement: "if (" expression ") {" statement* "}" #("else {" statement* "}")?
     for_statement: "for (" (declaration | assignment) "; " expression "; " assignment ") {" statement* "}"
-    
+
     # statements
     declaration: type identifier ("=" expression)? # var declaration 
-    assignment: (array_index | identifier) ("=" | "+=" | "++") expression
+    assignment: (array_index | identifier) "=" expression
     expression: term ((term_ops | logical_ops) term)*
 
     term: factor (factor_ops factor)*

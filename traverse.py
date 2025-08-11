@@ -1,4 +1,4 @@
-from ast_builder import METAL_Kernel, METAL_Parameter, METAL_Body, METAL_Var, METAL_Declaration, METAL_Assignment, METAL_IfStatement, METAL_Binary, METAL_Literal, METAL_Variable, METAL_Array, METAL_Program
+from ast_builder import METAL_Kernel, METAL_Parameter, METAL_Body, METAL_Var, METAL_Declaration, METAL_Assignment, METAL_IfStatement, METAL_ForStatement, METAL_Binary, METAL_Literal, METAL_Variable, METAL_Array, METAL_Program
 from ast_builder import Parameter, Declaration, Binary, Literal, CudaVar, Variable, Array
 
 class CUDAVisitor(object):
@@ -122,6 +122,17 @@ class CUDAVisitor(object):
                 body.append(child_node)
         return METAL_IfStatement(condition=cond, if_body=body)
 
+    def visit_ForStatement(self, node):
+        # initialization, condition, increment, body
+        init = self.visit(node.init)
+        cond = self.visit(node.condition)
+        incr = self.visit(node.increment)
+        stmts = []
+        for child in node.children():
+            child_node = self.visit(child)
+            stmts.append(child_node)
+        return METAL_ForStatement(init=init, condition=cond, increment=incr, forBody=stmts)
+
     def visit_Binary(self, node):
         #print(f"Binary node: {node}")
         metal_op = node.op
@@ -131,8 +142,9 @@ class CUDAVisitor(object):
 
     def visit_Literal(self, node):
         #print(f"Literal node: {node}")
-        type = node.type
-        return METAL_Literal(type)
+        #type = node.type
+        value = node.value
+        return METAL_Literal(value=value)
 
     def visit_Variable(self, node):
         #print(f"Variable node: {node}")

@@ -128,7 +128,7 @@ class IfStatement(Statement):
 
 @dataclass
 class ForStatement(Statement):
-    initialization: Declaration
+    init: Declaration
     condition: "Expression"
     increment: Assignment
     forBody: List[Statement]
@@ -263,18 +263,20 @@ class CUDATransformer(Transformer):
         type, name, initializer = items
         return Declaration(type=str(type), name=str(name), value=initializer)
 
-    def assignment(self, items):
-        name, value = items
-        #print(f"value type: {type(value)}\n value:{value}")
-        return Assignment(name=name, value=value)
+    def assignment(self, items): # error! for some reason the name is returning as TOKEN instead of the string 
+        name = items[0]
+        value = items[1]
+        return Assignment(name=str(name), value=value)
 
     def if_statement(self, items):
         condition, if_body = items
         return IfStatement(condition=condition, if_body=if_body)
 
-    def forStatement(self, items):
+    # obs: should we treat parameter variables as Parameter() or Variable() node. Because here the condition 
+    # is based on a Parameter, but we generate as a Variable node
+    def for_statement(self, items):
         init, cond, incr, forBody = items
-        return ForStatement(initialization=init, condition=cond, increment=incr, forBody=forBody)
+        return ForStatement(init=init, condition=cond, increment=incr, forBody=forBody)
 
     def expression(self, items):
         if len(items) == 1: # single term
@@ -398,6 +400,16 @@ class METAL_IfStatement(METAL_Statement):
 
     def children(self):
         return [*self.if_body]
+
+@dataclass
+class METAL_ForStatement(METAL_Statement):
+    init: METAL_Declaration
+    condition: "METAL_Expression"
+    increment: METAL_Assignment
+    forBody: List[METAL_Statement]
+
+    def children(self):
+        return [*self.forBody]
 
 # base class for expressions
 class METAL_Expression(METAL_Ast):
