@@ -14,6 +14,7 @@ class CUDAVisitor(object):
         # visitor = getattr(self, "visit_Kernel")
         # visitor() is the same as self.visit_kernel() for example
         # visitor(node): we pass the root node "Kernel()"" on 1st call.
+        print(method)
         if str(method) == "visit_Parameter": # find a way to remove this and simplify this recursive function
             return visitor(node, idx) # index for [[buffer(idx)]]
         return visitor(node) # same as: return visit_kernel(ast_builder.Kernel)
@@ -75,15 +76,12 @@ class CUDAVisitor(object):
         pass
 
     def visit_Declaration(self, node): #visit_Declaration(Declaration())
-        print(f"Declaration node: {node}")
-        print(f"NODE.VALUE: {node.value}")
         # check_semantic(node.value) # call this function to see if the variable is like thread id or something
         type = node.type
         name = node.name
         if node.children():
             value = [] # = Expression(Binary, Literal, Variable, Array)
             for child in node.children():
-                #print(f"Declaration child node: {child}") # debug
                 child_node = self.visit(child) # this is equal as: "return METAL_Declaration(type, name, value)"
                 value.append(child_node)
             return METAL_Declaration(type, name, value)
@@ -108,12 +106,12 @@ class CUDAVisitor(object):
 
 
     def visit_Assignment(self, node):
-        #print(f"Assignment node: {node}")
         name = self.visit(node.name) if isnode(node.name) else node.name
         val = self.visit(node.value) if isnode(node.value) else node.value
         return METAL_Assignment(name, val)
 
     def visit_IfStatement(self, node):
+        print(node)
         cond = self.visit(node.condition)
         body = []
         if node.children():
@@ -134,32 +132,26 @@ class CUDAVisitor(object):
         return METAL_ForStatement(init=init, condition=cond, increment=incr, forBody=stmts)
 
     def visit_Binary(self, node):
-        #print(f"Binary node: {node}")
+        print(f"BIN Node: {node}")
         metal_op = node.op
         left = self.visit(node.left) if isnode(node.left) else str(node.left)
         right = self.visit(node.right) if isnode(node.right) else str(node.right)
         return  METAL_Binary(metal_op, left, right)
 
     def visit_Literal(self, node):
-        #print(f"Literal node: {node}")
-        #type = node.type
         value = node.value
         return METAL_Literal(value=value)
 
     def visit_Variable(self, node):
-        #print(f"Variable node: {node}")
         name = node.name
         return METAL_Variable(name)
 
     def visit_Array(self, node):
-        #print(f"Array node: {node}") # debug
-        #print(f"name: {type(node.name)}") # debug
         array_name = self.visit(node.name) if isnode(node.name) else node.name
         idx = self.visit(node.index)
         return METAL_Array(array_name, idx)
 
     def visit_CudaVar(self, node):
-        #print(f"CudaVar node: {node}")
         metal_var = metal_map(node.base)
         return METAL_Var(metal_var)
 

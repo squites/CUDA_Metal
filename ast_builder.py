@@ -117,7 +117,7 @@ class IfStatement(Statement):
     if_body: List[Statement] # statement* 
 
     def children(self):
-        return [self.if_body] #if self.if_body is not None else []
+        return [*self.if_body] #if self.if_body is not None else []
 
     def pretty_print(self, indent=0):
         space = " " * (indent+2)
@@ -264,12 +264,21 @@ class CUDATransformer(Transformer):
         return Declaration(type=str(type), name=str(name), value=initializer)
 
     def assignment(self, items): # error! for some reason the name is returning as TOKEN instead of the string 
-        name = items[0]
+        name = str(items[0]) if isinstance(items[0], Token) else items[0]
         value = items[1]
-        return Assignment(name=str(name), value=value)
+        return Assignment(name=name, value=value)
 
+    #def if_statement(self, items):
+        
     def if_statement(self, items):
-        condition, if_body = items
+        # items[0]: if (x < M && y < N) {
+        # items[1]:     float tmp = 0.0;
+        # items[2:      for (int i = 0; i < K; i=i+1) { tmp = tmp + (data0[x * K + i] * data1[i * N + y]);}
+        # items[3]:     data2[x * N + y] = tmp;
+        print(len(items))
+        print(f"items: {items}")
+        condition = items[0]
+        if_body = items[1:]
         return IfStatement(condition=condition, if_body=if_body)
 
     # obs: should we treat parameter variables as Parameter() or Variable() node. Because here the condition 
