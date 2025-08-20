@@ -2,6 +2,10 @@ from lark import Transformer, Token, Tree
 from dataclasses import dataclass
 from typing import Union, List, Optional, Iterable
 
+# OBS: add parent attribute to make reference to the parent node of a node. This will help with tracking variables
+# Or maybe I can pass the node as parent on the visit method, because we call visit for the children of that node. So we just need
+# to pass the node itself as parent. Then we check the parent of that node
+
 # classes for nodes of the Abstract Syntax Tree. So each class is an Object that will be a node when called.
 class CUDA_Ast:
     def children(self):
@@ -25,6 +29,7 @@ class CUDA_Program(CUDA_Ast):
 # semantic classes
 @dataclass
 class Kernel(CUDA_Ast):
+    #parent: CUDA_Program
     qualifier: str
     type: str
     name: str
@@ -87,6 +92,7 @@ class Declaration(Statement):
     type: str
     name: str
     value: Optional["Expression"] = None
+    #parent: Node
 
     def children(self):
         return [self.value] if self.value is not None else []
@@ -103,6 +109,7 @@ class Declaration(Statement):
 class Assignment(Statement):
     name: str
     value: "Expression" # instance of Expression class. "Expression" with quotes because Expression class is not yet defined
+    # parent: Node
 
     def pretty_print(self, indent=0):
         space = " " * (indent+2)
@@ -114,7 +121,8 @@ class Assignment(Statement):
 @dataclass
 class IfStatement(Statement):
     condition: "Expression" # expression
-    if_body: List[Statement] # statement* 
+    if_body: List[Statement] # statement*
+    # parent: Node
 
     def children(self):
         return [*self.if_body] #if self.if_body is not None else []
@@ -132,6 +140,7 @@ class ForStatement(Statement):
     condition: "Expression"
     increment: Assignment
     forBody: List[Statement]
+    #parent: Union[Statement]
 
     def children(self):
         return [self.forBody]
@@ -155,6 +164,7 @@ class Binary(Expression):
     op: str
     left: Expression 
     right: Expression
+    #parent: Union[Statement, Expression]
 
     def pretty_print(self, indent=0):
         space = " " * indent
@@ -167,6 +177,7 @@ class Binary(Expression):
 @dataclass
 class Literal(Expression): # constant
     value: Union[int, float]
+    # parent: Node
 
     def pretty_print(self, indent=0):
         space = " " * indent
@@ -177,6 +188,7 @@ class Literal(Expression): # constant
 @dataclass
 class Variable(Expression): # var name
     name: str
+    #parent: Node
 
     def pretty_print(self, indent=0):
         space = " " * indent
@@ -188,6 +200,7 @@ class Variable(Expression): # var name
 class Array(Expression):
     name: Variable
     index: Expression
+    # parent: Node
 
     def pretty_print(self, indent=0):
         space = " " * indent
@@ -200,6 +213,7 @@ class Array(Expression):
 class CudaVar:
     base: str # blockIdx, threadIdx, ...
     dim: str # x, y, z
+    # parent: Node
 
     def pretty_print(self, indent=0):
         space = " " * indent
@@ -225,10 +239,6 @@ class CUDATransformer(Transformer):
             header = None
             kernel = items[0]
         return CUDA_Program(header=header, kernel=kernel)
-    
-    #def library(self, items):
-    #    lib = str(items)
-    #    return Library(library=lib)
 
     def kernel(self, items):
         qualifier, name, params, body = items
@@ -267,16 +277,12 @@ class CUDATransformer(Transformer):
         name = str(items[0]) if isinstance(items[0], Token) else items[0]
         value = items[1]
         return Assignment(name=name, value=value)
-
-    #def if_statement(self, items):
         
     def if_statement(self, items):
         # items[0]: if (x < M && y < N) {
         # items[1]:     float tmp = 0.0;
         # items[2:      for (int i = 0; i < K; i=i+1) { tmp = tmp + (data0[x * K + i] * data1[i * N + y]);}
         # items[3]:     data2[x * N + y] = tmp;
-        print(len(items))
-        print(f"items: {items}")
         condition = items[0]
         if_body = items[1:]
         return IfStatement(condition=condition, if_body=if_body)
@@ -416,6 +422,7 @@ class METAL_ForStatement(METAL_Statement):
     condition: "METAL_Expression"
     increment: METAL_Assignment
     forBody: List[METAL_Statement]
+    parent: Union[METAL_Statement, "METAL_Expression"]
 
     def children(self):
         return [*self.forBody]

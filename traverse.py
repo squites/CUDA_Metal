@@ -8,16 +8,30 @@ class CUDAVisitor(object):
         self.kernel_params = []
         self.body = []
     
-    def visit(self, node, idx=0): # 1st call node: <class '__main__.Kernel'>
-        method = "visit_" + node.__class__.__name__ # attribute
-        visitor = getattr(self, method, self.visit_error) # getattr(obj, attr, default): returns the value of the attribute "attr" of the object "obj". returns a reference of the function "method"
-        # visitor = getattr(self, "visit_Kernel")
-        # visitor() is the same as self.visit_kernel() for example
-        # visitor(node): we pass the root node "Kernel()"" on 1st call.
-        print(method)
-        if str(method) == "visit_Parameter": # find a way to remove this and simplify this recursive function
-            return visitor(node, idx) # index for [[buffer(idx)]]
-        return visitor(node) # same as: return visit_kernel(ast_builder.Kernel)
+    #def visit(self, node, idx=0): # 1st call node: <class '__main__.Kernel'>
+    #    print(node.__class__.__name__)
+    #    method = "visit_" + node.__class__.__name__ # attribute
+    #    visitor = getattr(self, method, self.visit_error) # getattr(obj, attr, default): returns the value of the attribute "attr" of the object "obj". returns a reference of the function "method"
+    #    # visitor = getattr(self, "visit_Kernel")
+    #    # visitor() is the same as self.visit_kernel() for example
+    #    # visitor(node): we pass the root node "Kernel()"" on 1st call.
+    #    print(method)
+    #    if str(method) == "visit_Parameter": # find a way to remove this and simplify this recursive function
+    #        return visitor(node, idx) # index for [[buffer(idx)]]
+    #    return visitor(node) # same as: return visit_kernel(ast_builder.Kernel)
+
+    # passing the node parent
+    def visit(self, node, parent=None, idx=0):
+        #print(f"PARENT: {str(parent)}")
+        #print(f"NODE: {str(node)}")
+        method = "visit_" + node.__class__.__name__
+        visitor = getattr(self, method, self.visit_error)
+        if str(method) == "visit_Parameter":
+            return visitor(node, idx)
+        if parent is not None:
+            return visitor(node, parent)
+        else:
+            return visitor(node)
 
     def visit_CUDA_Program(self, node):
         lib = node.header
@@ -25,7 +39,6 @@ class CUDAVisitor(object):
         return METAL_Program(header=lib, kernel=kernel)
 
     def visit_Kernel(self, node):
-        #print(f"Kernel node: {node}")
         qualifier = "kernel" if node.qualifier == "__global__" else ""
         type = node.type
         name = node.name
@@ -75,14 +88,16 @@ class CUDAVisitor(object):
     def visit_Statement(self, node):
         pass
 
-    def visit_Declaration(self, node): #visit_Declaration(Declaration())
+    def visit_Declaration(self, node, parent=None): #visit_Declaration(Declaration())
         # check_semantic(node.value) # call this function to see if the variable is like thread id or something
+        #print(f"Parent: {node}\n{node.__class__.__name__}")
         type = node.type
         name = node.name
         if node.children():
             value = [] # = Expression(Binary, Literal, Variable, Array)
             for child in node.children():
-                child_node = self.visit(child) # this is equal as: "return METAL_Declaration(type, name, value)"
+                #print(f"Child: {child}")
+                child_node = self.visit(child, parent=node) # this is equal as: "return METAL_Declaration(type, name, value)"
                 value.append(child_node)
             return METAL_Declaration(type, name, value)
         else:
@@ -104,54 +119,52 @@ class CUDAVisitor(object):
     #    else:
     #        return METAL_Declaration(type, name, None)
 
-
-    def visit_Assignment(self, node):
-        name = self.visit(node.name) if isnode(node.name) else node.name
-        val = self.visit(node.value) if isnode(node.value) else node.value
+    def visit_Assignment(self, node, parent=None):
+        name = self.visit(node.name, parent=node) if isnode(node.name) else node.name
+        val = self.visit(node.value, parent=node) if isnode(node.value) else node.value
         return METAL_Assignment(name, val)
 
-    def visit_IfStatement(self, node):
-        print(node)
-        cond = self.visit(node.condition)
+    def visit_IfStatement(self, node, parent=None):
+        cond = self.visit(node.condition, parent=node)
         body = []
         if node.children():
             for child in node.children():
-                child_node = self.visit(child)
+                child_node = self.visit(child, parent=node)
                 body.append(child_node)
         return METAL_IfStatement(condition=cond, if_body=body)
 
-    def visit_ForStatement(self, node):
+    def visit_ForStatement(self, node, parent=None):
         # initialization, condition, increment, body
-        init = self.visit(node.init)
-        cond = self.visit(node.condition)
-        incr = self.visit(node.increment)
+        init = self.visit(node.init, parent=node)
+        cond = self.visit(node.condition, parent=node)
+        incr = self.visit(node.increment, parent=node)
         stmts = []
         for child in node.children():
-            child_node = self.visit(child)
+            child_node = self.visit(child, parent=node)
             stmts.append(child_node)
-        return METAL_ForStatement(init=init, condition=cond, increment=incr, forBody=stmts)
+        return METAL_ForStatement(init=init, condition=cond, increment=incr, forBody=stmts, parent=parent)
 
-    def visit_Binary(self, node):
-        print(f"BIN Node: {node}")
+    def visit_Binary(self, node, parent=None):
+        self.parent = node if parent is not None else None
         metal_op = node.op
-        left = self.visit(node.left) if isnode(node.left) else str(node.left)
-        right = self.visit(node.right) if isnode(node.right) else str(node.right)
+        left = self.visit(node.left, parent=node) if isnode(node.left) else str(node.left)
+        right = self.visit(node.right, parent=node) if isnode(node.right) else str(node.right)
         return  METAL_Binary(metal_op, left, right)
 
-    def visit_Literal(self, node):
+    def visit_Literal(self, node, parent=None):
         value = node.value
         return METAL_Literal(value=value)
 
-    def visit_Variable(self, node):
+    def visit_Variable(self, node, parent=None):
         name = node.name
         return METAL_Variable(name)
 
-    def visit_Array(self, node):
-        array_name = self.visit(node.name) if isnode(node.name) else node.name
+    def visit_Array(self, node, parent=None):
+        array_name = self.visit(node.name, parent=node) if isnode(node.name) else node.name
         idx = self.visit(node.index)
         return METAL_Array(array_name, idx)
 
-    def visit_CudaVar(self, node):
+    def visit_CudaVar(self, node, parent=None):
         metal_var = metal_map(node.base)
         return METAL_Var(metal_var)
 
@@ -200,7 +213,6 @@ def get_expr(node):
 def get_param_idx(kernel_params, node):
     for p in kernel_params:
         if node.type == p.type and node.name == p.name:
-            print(f"index: {int(p)}")
             return int(p)
     return 0
 
