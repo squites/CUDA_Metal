@@ -71,11 +71,9 @@ class CUDAVisitor(object):
         return METAL_Parameter(memory_type=mem_type, type=node.type, name=node.name, buffer=buffer)
 
     def visit_Body(self, node):
-        #print(f"Body node: {node}") # debug
         if node.children():
             statements = []
             for child in node.children():
-                #print(f"Body child node: {child}")
                 # for each child, will return the respective METAL node. Ex: visit(child) = METAL_Declaration(type, name, value)
                 child_node = self.visit(child) # visit(Declaration), visit(Assignment)
                 statements.append(child_node) # this right? It is if child_node is being a METAL node returned by visit methods. Not right if child_node is CUDA node
@@ -88,36 +86,27 @@ class CUDAVisitor(object):
     def visit_Statement(self, node):
         pass
 
+    # obs: for tid and gid, we are generating the right Parameter() node, but they are still inside the 
+    # body of the kernel. We need to have a way to move them into Parameters when they're thread index 
+    # calculations. 
     def visit_Declaration(self, node, parent=None): #visit_Declaration(Declaration())
-        # check_semantic(node.value) # call this function to see if the variable is like thread id or something
-        #print(f"Parent: {node}\n{node.__class__.__name__}")
+        cudaVarsList = []
         type = node.type
         name = node.name
         if node.children():
             value = [] # = Expression(Binary, Literal, Variable, Array)
             for child in node.children():
-                #print(f"Child: {child}")
+                check_semantic(node.value, cudaVarsList)
+                #print(cudaVarsList)
+                if cudaVarsList:
+                    param = metal_map(" ".join(cudaVarsList))
+                    # need to move this node outside of the body of the function!!!!!!
+                    return METAL_Parameter(memory_type=None, type="uint", name=name, buffer=None, init=param)
                 child_node = self.visit(child, parent=node) # this is equal as: "return METAL_Declaration(type, name, value)"
                 value.append(child_node)
             return METAL_Declaration(type, name, value)
         else:
-            #print(f"Node {node} has no children.")
             return METAL_Declaration(type, name, None)
-
-    #def visit_Declaration(self, node):
-    #    semantic = check_semantic(node.value) if isinstance(node, Declaration) else None # semantic = ["blockIdx", "blockDim", "threadIdx"]
-    #    if semantic is not []:
-    #        return METAL_Parameter(memory_type=None, type=node.type, name=node.name)
-    #    type = node.type
-    #    name = node.name
-    #    if node.children():
-    #        value = []
-    #            for child in node.children():
-    #            child_node = self.visit(child)
-    #            value.append(child_node)
-    #        return METAL_Declaration(type, name, value)
-    #    else:
-    #        return METAL_Declaration(type, name, None)
 
     def visit_Assignment(self, node, parent=None):
         name = self.visit(node.name, parent=node) if isnode(node.name) else node.name
@@ -174,10 +163,6 @@ class CUDAVisitor(object):
 # helpers (move this to another file)
 def isnode(node):
     """ Check if the node that we're visiting has any node as value for any attribute """
-    #if isinstance(node, (Binary, Literal, Variable, Array, CudaVar,
-    #                     METAL_Binary, METAL_Literal, METAL_Variable, 
-    #                     METAL_Array, METAL_Var)):
-    #    return True
     return isinstance(node, (Binary, Literal, Variable, Array, CudaVar, METAL_Binary, METAL_Literal, METAL_Variable, METAL_Array, METAL_Var))
 
 def metal_map(cuda_term):
@@ -190,6 +175,8 @@ def metal_map(cuda_term):
         case "__global__":   metal_term = "device"
         case "__shared__":   metal_term = "threadgroup"
         case "__constant__": metal_term = "constant"
+        case "blockIdx.x * blockDim.x + threadIdx.x": metal_term = "[[thread_position_in_grid]]"
+        case "blockIdx.y * blockDim.y + threadIdx.y": metal_term = "[[thread_position_in_threadgroup]]"
     
     return metal_term
 
@@ -216,41 +203,45 @@ def get_param_idx(kernel_params, node):
             return int(p)
     return 0
 
-#def check_semantic(node):
-#    # int gid = blockIdx.x * blockDim.x + threadIdx.x;
-#    expr = ""
-#    cudavars = []
-#    while (isnode(node)):
-#        if isinstance(node, Binary): # node=Bin(op='+', left=(Bin(op='*', left=Cuda(base="blockIdx", dim='x'), right=Cuda(base=blockDim, dim='x')), right=Cuda(base='threadIdx', dim='x')))
-#            # node=Bin(op='+', left=(Bin(op='*', left=Cuda(base="blockIdx", dim='x'), right=Cuda(base=blockDim, dim='x')), right=Cuda(base='threadIdx', dim='x')))
-#            # left=Bin(op='*', left=Cuda(base="blockIdx", dim='x'), right=Cuda(base=blockDim, dim='x'))
-#            # left=Cuda(base="blockIdx", dim='x')
-#            # right=
-#            op = node.op
-#            l = node.left
-#            r = node.right
-#            left = check_semantic(node.left) # left=Bin(op='*', left=Cuda(base="blockIdx", dim='x'), right=Cuda(base=blockDim, dim='x'))
-#            right = check_semantic(node.right) # right=Cuda(base='threadIdx', dim='x')
-#        elif isinstance(node, CudaVar):
-#            cudavars.append(node.base)
+# node.value = Bin(op='+', left=Bin(op='*', left=CudaVar(base='blockIdx', dim='x'), right=CudaVar(base='blockDim', dim='x')), right=CudaVar(base='threadIdx', dim='x'))
+#def check_semantic2(node, cudaVars, op=None): # param: node.value
+#    # not right yet. I need to return an expression instead of a list, and see if that expression 
+#    # matches the correct calculation of a global thread index for example. So I need to find a way 
+#    # to check if that expression is actually calculating that variable. If it is, I 
+#    # return a METAL_Parameter node instead of Declaration node.
+#    # So I need to confidently say that it is a computation for global thread index.
+#    #cuda_vars = []
+#    print(f"NODE: {node}")
+#    #cuda_vars += cuda_vars
+#    #while isinstance(node, (Binary, CudaVar)): # not working. Infinite loop
+#    if isinstance(node, Binary): # node=Bin(op, left, right)
+#        print("left: ", node.left)
+#        left = check_semantic(node.left, cudaVars, node.op) # left=Bin(op, left, right)
+#        print("left 2: ", left)
+#        print("right: ", node.right)
+#        right = check_semantic(node.right, cudaVars, node.op)
+#        print("right 2: ", right)
+#    elif isinstance(node, CudaVar):
+#        print("it is CudaVar instance: ", node)
+#        #cuda_vars.append(metal_map(node.base))
+#        #cuda_vars.append(node.base + "." + node.dim)
+#        var = node.base + "." + node.dim
+#        cudaVars.append(var)
+#    if op is not None:
+#        cudaVars.append(op)
+#
+#    print("cuda_vars2: ", cudaVars)
+#    return cudaVars
 
 
-def check_semantic(node): # node.value = Bin(op='+', left=Bin(op='*', left=CudaVar(base='blockIdx', dim='x'), right=CudaVar(base='blockDim', dim='x')), right=CudaVar(base='threadIdx', dim='x'))
-    # not right yet. I need to return an expression instead of a list, and see if that expression matches the 
-    # correct calculation of a global thread index for example. So I need to find a way to check if that expression
-    # is actually calculating that variable. If it is, I return a METAL_Parameter node instead of Declaration node.
-    # So I need to confidently say that its is a computation for global thread index.
-    cuda_vars = []
-    while isnode(node):
-        if isinstance(node, Binary): # node=Bin(op, left, right)
-            l = check_semantic(node.left) # left=Bin(op, left, right)
-            r = check_semantic(node.right)
-        elif isinstance(node, CudaVar):
-            #if node.base == "blockIdx" or node.base == "blockDim" or node.base == "threadIdx":
-            cuda_vars.append(metal_map(node.base))
-
-    return cuda_vars
-
+def check_semantic(node, expr, op=None):
+    if isinstance(node, Binary):
+        check_semantic(node.left, expr, node.op) if isnode(node.left) else None#print("oi")
+        expr.append(node.op)
+        check_semantic(node.right, expr, node.op) if isnode(node.right) else None# print("oi")
+    elif isinstance(node, CudaVar):
+        expr.append(node.base + "." + node.dim)
+    return expr
 
 
 # METAL -> CUDA:

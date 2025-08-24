@@ -33,35 +33,35 @@ class CodeGen():
             i = 1
             for child in node.children():
                 child_node_str = self.generator(child) # return the str generated on each gen method
-                print("METAL CHILD: ", child)
-                print("METAL_child_node_str: ", child_node_str)
                 if isinstance(child, METAL_Parameter):
                     if len(node.parameters) == i:
                         s = child_node_str + ") {\n" #+ f"{str(indent)}"
                     else:
-                        space = " " * 25 
-                        s = child_node_str + f",\n{space}" # melhorar esse indent e deixá-lo dinamico
+                        space = " " * 25 # gets to exactly the right place under the 1st param
+                        s = child_node_str + f",\n{space}"
                     i += 1
                 else:
                     s = child_node_str #+ ";"
                 metal_code = metal_code + s
-        self.metal_str = metal_code + "\n}"
+        self.metal_str = metal_code + "}"
         return self.metal_str
 
-    def gen_METAL_Parameter(self, node, indent=9):
-        space = " " * indent
-        memory_type = node.memory_type
+    # obs: for tid and gid, we are generating the right Parameter() node, but they are still inside the 
+    # body of the kernel. We need to have a way to move them into Parameters when they're thread index 
+    # calculations
+    def gen_METAL_Parameter(self, node, indent=0):
+        memory_type = "" if node.memory_type is None else node.memory_type
         type = node.type
         name = node.name
         buff = "" if not node.buffer else str(node.buffer)
-        code_str = f"{str(memory_type)} {str(type)} {str(name)} {str(buff)}"
+        init = node.init if node.init else ""
+        code_str = f"{str(memory_type)} {str(type)} {str(name)}{str(buff)}{str(init)}"
         return code_str 
 
     def gen_METAL_Body(self, node, indent=0):
         bodystr = ""
         if node.children():
             for child in node.children():
-                print("body child: ", child)
                 child_body_str = self.generator(child, indent=4) # body statment must have 4 tabs
                 if isinstance(child, (METAL_IfStatement, METAL_ForStatement)):
                     bodystr = bodystr + child_body_str + "\n" # if add ";" the ifstatement will also have ";" which is wrong
@@ -93,7 +93,6 @@ class CodeGen():
         ifstr = space + "if (" + cond + ") {\n"
         bodystr = ""
         for b in node.if_body:
-            print("body: ", b)
             body = self.generator(b, indent=indent+4)
             if isinstance(b, (METAL_ForStatement, METAL_IfStatement)):
                 bodystr = bodystr + str(body) + "\n"

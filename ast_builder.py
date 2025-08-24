@@ -381,7 +381,8 @@ class METAL_Parameter(METAL_Ast):
     #constant: str = ""
     type: str
     name: str
-    buffer: str # for some parameters we use this buffer
+    buffer: Optional[str] # for some parameters we use this buffer
+    init: Optional[Union[str, int]] = None
 
 @dataclass
 class METAL_Body(METAL_Ast):
