@@ -7,18 +7,6 @@ class CUDAVisitor(object):
         #self.buffer_idx = -1
         self.kernel_params = []
         self.body = []
-    
-    #def visit(self, node, idx=0): # 1st call node: <class '__main__.Kernel'>
-    #    print(node.__class__.__name__)
-    #    method = "visit_" + node.__class__.__name__ # attribute
-    #    visitor = getattr(self, method, self.visit_error) # getattr(obj, attr, default): returns the value of the attribute "attr" of the object "obj". returns a reference of the function "method"
-    #    # visitor = getattr(self, "visit_Kernel")
-    #    # visitor() is the same as self.visit_kernel() for example
-    #    # visitor(node): we pass the root node "Kernel()"" on 1st call.
-    #    print(method)
-    #    if str(method) == "visit_Parameter": # find a way to remove this and simplify this recursive function
-    #        return visitor(node, idx) # index for [[buffer(idx)]]
-    #    return visitor(node) # same as: return visit_kernel(ast_builder.Kernel)
 
     # passing the node parent
     def visit(self, node, parent=None, idx=0):
@@ -76,8 +64,13 @@ class CUDAVisitor(object):
             for child in node.children():
                 # for each child, will return the respective METAL node. Ex: visit(child) = METAL_Declaration(type, name, value)
                 child_node = self.visit(child) # visit(Declaration), visit(Assignment)
+                # check if its Parameter() node for tid and gid
+                #if isinstance(child_node, METAL_Parameter):
+                #    print("DECLARATIONNNN", child_node)
+                
                 statements.append(child_node) # this right? It is if child_node is being a METAL node returned by visit methods. Not right if child_node is CUDA node
             #statements = [METAL_Declaration(...), METAL_Assignment(...)]
+            print("STATEMENTS: ", statements)
             return METAL_Body(statements)
         else:
             #print(f"The node {node} has no children!")
@@ -97,11 +90,12 @@ class CUDAVisitor(object):
             value = [] # = Expression(Binary, Literal, Variable, Array)
             for child in node.children():
                 check_semantic(node.value, cudaVarsList)
-                #print(cudaVarsList)
                 if cudaVarsList:
                     param = metal_map(" ".join(cudaVarsList))
-                    # need to move this node outside of the body of the function!!!!!!
-                    return METAL_Parameter(memory_type=None, type="uint", name=name, buffer=None, init=param)
+                    node = METAL_Parameter(memory_type=None, type="uint", name=name, buffer=None, init=param)
+                    self.kernel_params.append(node)
+                    return None # this returns None. I need to return nothing!
+                    #return METAL_Parameter(memory_type=None, type="uint", name=name, buffer=None, init=param)
                 child_node = self.visit(child, parent=node) # this is equal as: "return METAL_Declaration(type, name, value)"
                 value.append(child_node)
             return METAL_Declaration(type, name, value)

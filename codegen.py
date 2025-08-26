@@ -1,4 +1,3 @@
-#from main import METAL_Ast
 from traverse import isnode
 from ast_builder import METAL_Parameter, METAL_IfStatement, METAL_ForStatement
 
@@ -14,7 +13,7 @@ class CodeGen():
         gen = getattr(self, method, self.gen_error)
         return gen(node, indent)
 
-    def gen_error(self):
+    def gen_error(self, node, indent=0):
         print("Error!")
 
     def gen_METAL_Program(self, node, indent=0):
@@ -55,18 +54,23 @@ class CodeGen():
         name = node.name
         buff = "" if not node.buffer else str(node.buffer)
         init = node.init if node.init else ""
-        code_str = f"{str(memory_type)} {str(type)} {str(name)}{str(buff)}{str(init)}"
+        if init is not "":
+            code_str = f"{str(memory_type)} {str(type)} {str(name)}{str(buff)} {str(init)}"
+        else:
+            code_str = f"{str(memory_type)} {str(type)} {str(name)}{str(buff)}"
         return code_str 
 
     def gen_METAL_Body(self, node, indent=0):
         bodystr = ""
         if node.children():
             for child in node.children():
-                child_body_str = self.generator(child, indent=4) # body statment must have 4 tabs
-                if isinstance(child, (METAL_IfStatement, METAL_ForStatement)):
-                    bodystr = bodystr + child_body_str + "\n" # if add ";" the ifstatement will also have ";" which is wrong
-                else:
-                    bodystr = bodystr + child_body_str + ";\n"
+                if child is not None:
+                    child_body_str = self.generator(child, indent=4) # body statment must have 4 tabs
+                    print("child_body_str: ", child_body_str)
+                    if isinstance(child, (METAL_IfStatement, METAL_ForStatement)):
+                        bodystr = bodystr + child_body_str + "\n" # if add ";" the ifstatement will also have ";" which is wrong
+                    else:
+                        bodystr = bodystr + child_body_str + ";\n"
         return bodystr
 
     def gen_METAL_Declaration(self, node, indent):
@@ -76,6 +80,7 @@ class CodeGen():
         declaration_str = f"{type} {name} = "
         if node.children():
             for child in node.children():
+                print("child ", child)
                 child_decla_str = self.generator(child)#, indent)
                 declaration_str = declaration_str + child_decla_str
         return space + declaration_str# + ";" 
@@ -105,7 +110,7 @@ class CodeGen():
         init = self.generator(node.init)
         cond = self.generator(node.condition)
         incr = self.generator(node.increment)
-        header = space + "for (" + init + " " + cond + "; " + incr + ") {\n"
+        header = space + "for (" + init + "; " + cond + "; " + incr + ") {\n"
         bodystr = ""
         for statement in node.forBody:
             body = self.generator(statement, indent=indent+4)
