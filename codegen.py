@@ -14,7 +14,7 @@ class CodeGen():
         return gen(node, indent)
 
     def gen_error(self, node, indent=0):
-        print("Error!")
+        print(f"Error! Node: {node}")
 
     def gen_METAL_Program(self, node, indent=0):
         if node.header == None:
@@ -54,7 +54,8 @@ class CodeGen():
         name = node.name
         buff = "" if not node.buffer else str(node.buffer)
         init = node.init if node.init else ""
-        if init is not "":
+        #if init is not "":
+        if init != "":
             code_str = f"{str(memory_type)} {str(type)} {str(name)}{str(buff)} {str(init)}"
         else:
             code_str = f"{str(memory_type)} {str(type)} {str(name)}{str(buff)}"
@@ -66,7 +67,6 @@ class CodeGen():
             for child in node.children():
                 if child is not None:
                     child_body_str = self.generator(child, indent=4) # body statment must have 4 tabs
-                    print("child_body_str: ", child_body_str)
                     if isinstance(child, (METAL_IfStatement, METAL_ForStatement)):
                         bodystr = bodystr + child_body_str + "\n" # if add ";" the ifstatement will also have ";" which is wrong
                     else:
@@ -75,14 +75,19 @@ class CodeGen():
 
     def gen_METAL_Declaration(self, node, indent):
         space = " " * indent # indent=4 for body child nodes
+        print(indent)
+        memory = node.memory
         type = node.type
-        name = node.name
-        declaration_str = f"{type} {name} = "
-        if node.children():
+        # error here!!!! for some reason
+        name = self.generator(node.name) if isnode(node.name) else node.name
+        if node.memory != None:
+            declaration_str = f"{str(memory)} {str(type)} {str(name)}" if node.value == None else f"{str(memory)} {str(type)} {str(name)} = "
+        else:
+            declaration_str = f"{type} {name} = "
+        if node.children() is not None:
             for child in node.children():
-                print("child ", child)
                 child_decla_str = self.generator(child)#, indent)
-                declaration_str = declaration_str + child_decla_str
+                declaration_str = declaration_str + str(child_decla_str)
         return space + declaration_str# + ";" 
 
     def gen_METAL_Assignment(self, node, indent):
@@ -114,7 +119,7 @@ class CodeGen():
         bodystr = ""
         for statement in node.forBody:
             body = self.generator(statement, indent=indent+4)
-            bodystr = bodystr + str(body) + ";\n"
+            bodystr = bodystr + str(body) + "\n" if isinstance(statement, (METAL_ForStatement, METAL_IfStatement)) else bodystr + str(body) + ";\n"
         return header + bodystr + space + "}"
 
     # ex: METAL_Binary(op='+',left=METAL_Variable(name='a'), right='b')
