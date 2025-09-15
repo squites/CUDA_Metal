@@ -1,6 +1,6 @@
-from lark import Transformer, Token, Tree
+from lark import Transformer, Token
 from dataclasses import dataclass
-from typing import Union, List, Optional, Iterable
+from typing import Union, List, Optional
 
 # OBS: add parent attribute to make reference to the parent node of a node. This will help with tracking variables
 # Or maybe I can pass the node as parent on the visit method, because we call visit for the children of that node. So we just need
@@ -89,6 +89,7 @@ class Statement(CUDA_Ast):
 
 @dataclass
 class Declaration(Statement):
+    memory: Optional[str]# = None
     type: str
     name: str
     value: Optional["Expression"] = None
@@ -270,8 +271,18 @@ class CUDATransformer(Transformer):
         return items[0]
     
     def declaration(self, items):
-        type, name, initializer = items
-        return Declaration(type=str(type), name=str(name), value=initializer)
+        if items[0] == "__shared__" or items[0] == "__constant__":
+            memory = items[0]
+            type = items[1]
+            name = items[2]
+            initializer = items[3] if len(items) == 4 else None
+        else:
+            memory = None
+            type = items[0]
+            name = items[1]
+            initializer = items[2] if len(items) == 3 else None
+
+        return Declaration(memory=str(memory), type=str(type), name=name, value=initializer)
 
     def assignment(self, items): # error! for some reason the name is returning as TOKEN instead of the string 
         name = str(items[0]) if isinstance(items[0], Token) else items[0]
@@ -290,7 +301,11 @@ class CUDATransformer(Transformer):
     # obs: should we treat parameter variables as Parameter() or Variable() node. Because here the condition 
     # is based on a Parameter, but we generate as a Variable node
     def for_statement(self, items):
-        init, cond, incr, forBody = items
+        init = items[0]
+        cond = items[1]
+        incr = items[2]
+        forBody = items[3:]
+        #init, cond, incr, forBody = items
         return ForStatement(init=init, condition=cond, increment=incr, forBody=forBody)
 
     def expression(self, items):
@@ -334,7 +349,7 @@ class CUDATransformer(Transformer):
         return token[0].value
     
     def identifier(self, token):
-        return token[0] #.value
+        return token[0].value #.value
 
     def memory_type(self, token):
         return token[0].value
@@ -397,12 +412,13 @@ class METAL_Statement(METAL_Ast):
 
 @dataclass
 class METAL_Declaration(METAL_Statement):
+    memory: Optional[str]
     type: str
     name: str
     value: Optional["METAL_Expression"] = None # is generating a list value=[METAL_Binary(...)] while in cuda_ast generates value=Binary(...)
 
     def children(self):
-        return [*self.value] if self.value is not None else [] # when adding '*', removes the "[]" for some reason
+        return [*self.value] if self.value is not None else None # when adding '*', removes the "[]" for some reason
 
 @dataclass
 class METAL_Assignment(METAL_Statement):
@@ -455,6 +471,11 @@ class METAL_Array(METAL_Expression):
 class METAL_Var(METAL_Ast):
     metal_var: str
 
+@dataclass
+class METAL_GlobalThreadId(METAL_Ast):
+    def __init__(self):
+        raise NotImplementedError
+    #pass
 
 # ------------------------------ DOC ---------------------------------
 # 

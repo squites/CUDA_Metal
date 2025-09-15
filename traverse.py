@@ -1,5 +1,5 @@
 from ast_builder import METAL_Kernel, METAL_Parameter, METAL_Body, METAL_Var, METAL_Declaration, METAL_Assignment, METAL_IfStatement, METAL_ForStatement, METAL_Binary, METAL_Literal, METAL_Variable, METAL_Array, METAL_Program
-from ast_builder import Parameter, Declaration, Binary, Literal, CudaVar, Variable, Array
+from ast_builder import Parameter, Declaration, Assignment, Binary, Literal, CudaVar, Variable, Array
 
 class CUDAVisitor(object):
     """ Traverse the ast nodes """
@@ -76,8 +76,10 @@ class CUDAVisitor(object):
     # obs2: if i set a self.cudavarslist = [], this will store every Declaration node cuda vars. If i use it inside the 
     # function only the local list, I'll have only the current node cuda vars. Which one is better?
     def visit_Declaration(self, node, parent=None):
-        cudavars_logic(self.cudavarslist)
+        expr = extract_cuda_expression(node, expr="")
+        print(f"expr: {expr}\n")
         cudavars = []
+        #cudavars = ""
         memory = node.memory if node.memory else None
         type = node.type
         name = self.visit(node.name) if isnode(node.name) else node.name
@@ -87,24 +89,35 @@ class CUDAVisitor(object):
                 #print("\nchild ", child)
                 cudavars = check_semantic_v2(child, cudavars, parent=node)
                 self.cudavarslist.append(cudavars) if cudavars != [] else None
-                print("cudavars: ", cudavars)
-                print(len(cudavars))
-                print(f"self.cudavarslist: {self.cudavarslist})")#\nlength: {len(self.cudavarslist)}")
-                # need to verify this logic because sometimes it should not be parameters such as threadIdx.x % CHUNKSIZE
-                # is not right. Need to make new mappings
-                #if cudavars == ("blockIdx.x * blockDim.x + threadIdx.x" or "blockIdx.y * blockDim.y + threadIdx.y"):
-                #if ("blockIdx.x" and "blockIdx.y") in self.cudavarslist: # uint2
+                #print(f"cudavars: {cudavars}\nlen: {len(cudavars)}")
+                #print(f"self.cudavarslist: {self.cudavarslist}")
 
-                if ["blockIdx.x"] in self.cudavarslist and ["blockIdx.y"] in self.cudavarslist: #cudavars: #self.cudavarslist:
-                    type = "uint2"
-                    name = "tid"
-                    param = "".join(metal_map(str(self.cudavarslist)))
-                    node = METAL_Parameter(memory_type=None, type=type, name=name, buffer=None, init=param)
-                    self.kernel_params.append(node)
-                    return None # this returns None. I need to return nothing!
-                    #return METAL_Parameter(memory_type=None, type="uint", name=name, buffer=None, init=param)
+                # outadated
+                # idea: if there's cuda var inside body, create METAL_Parameter node and add to self.kernel_params
+                # then, check if that node already have been added. If not add to the list.
+
+                # probably the stupidest way to make this, but that'll do for now
+                for var in range(len(self.cudavarslist)):                                 # [var[0(0,)]]
+                    node = None
+                    # wrong! Im passing the name there, but i need to check the node
+                    #if not check_nodes(self.cudavarslist[var][0][0], self.kernel_params): # [ [ ( , )]]
+                    if not check_nodes(node, self.kernel_params):
+                        #print(f"var: {self.cudavarslist[var][0][0]} ---  INSERE")
+                        x = self.cudavarslist[var][0][0]
+                        #node = METAL_Parameter(memory_type=None, type="uint3", name=x, buffer=None, init=metal_map(x))
+                        #self.kernel_params.append(self.cudavarslist[var][0][0])
+                        #self.kernel_params.append(node)
+                
+                # call function to map the vars
+                node = METAL_Parameter(memory_type=None, type="uint3", name="blockidx", buffer=None, init=None)
+                #if not check_nodes(node, self.kernel_params):
+                #    self.kernel_params.append(node)
+                #print("self.kernel_params: ", self.kernel_params)
+                #return None # this was generating the error on for codegen, where it was concatenating None
+                #return METAL_Parameter(memory_type=None, type="uint", name=name, buffer=None, init=param)
                 child_node = self.visit(child, parent=node) # this is equal as: "return METAL_Declaration(type, name, value)"
                 value.append(child_node)
+            #print("self.kernel_params: ",  self.kernel_params)
             if value != None:
                 return METAL_Declaration(metal_map(memory), type, name, value)
             else:
@@ -128,11 +141,7 @@ class CUDAVisitor(object):
         return METAL_IfStatement(condition=cond, if_body=body)
 
     def visit_ForStatement(self, node, parent=None):
-        # initialization, condition, increment, body
         #if node.init and node.condition and node.increment is not None:
-        assert node.init is not None
-        assert node.condition is not None
-        assert node.increment is not None
         init = self.visit(node.init, parent=node) #if node.init is not None else ""
         cond = self.visit(node.condition, parent=node)
         incr = self.visit(node.increment, parent=node)
@@ -189,16 +198,21 @@ def metal_map(cuda_term):
         case "__constant__":    metal_term = "constant"
         case "blockIdx.x * blockDim.x + threadIdx.x": metal_term = "[[thread_position_in_grid]]"
         case "blockIdx.y * blockDim.y + threadIdx.y": metal_term = "[[thread_position_in_threadgroup]]"
-        #case "blockIdx.y":     metal_term = "[[thread_position_in_threadgroup]]"
+        case "blockIdx.y":     metal_term = "[[thread_position_in_threadgroup]]"
         case "__syncthreads()": metal_term = "threadgroud_barrier()"
     return metal_term
 
-#def metal_map_semantic(term):
-#    match term:
-#        case "blockIdx.x * blockDim.x + threadIdx.x":
-#            dim = "uint"
-#            metal = "[[thread_position_in_grid]]"
+def map_names(name):
+    match name:
+        case "blockIdx":    return "tg_pig"
+        case "threadIdx":   return "t_pit"
+        case "blockDim":    return "t_pt"
 
+def check_nodes(node, params):
+    if node in params:
+        return True
+    else:
+        return False
 
 def get_param_idx(kernel_params, node):
     for p in kernel_params:
@@ -206,61 +220,52 @@ def get_param_idx(kernel_params, node):
             return int(p)
     return 0
 
-#def check_semantic(node, expr, op=None):
-#    if isinstance(node, Binary):
-#        check_semantic(node.left, expr, node.op) if isnode(node.left) else None
-#        expr.append(node.op)
-#        check_semantic(node.right, expr, node.op) if isnode(node.right) else None
-#    elif isinstance(node, CudaVar):
-#        expr.append(node.base + "." + node.dim)
-#    return expr
-
 def check_semantic_v2(node, cudalist, parent=None):
     """
     this is to group cudavars that we have in the cuda kernel, so we can translate them semantically the right way.
     """
-    if parent is not None:
-        print("\nparent: ", parent.name)
+    #if parent is not None:
+    #    print("\nparent: ", parent.name)
     if isinstance(node, CudaVar):
-        #t = (node.base, node.dim)
-        t = str(node.base) + "." + str(node.dim) # maybe is better to return like this
+        t = (node.base, node.dim)
+        #t = str(node.base) + "." + str(node.dim) # maybe is better to return like this
         cudalist.append(t)
+        #cudalist = t
     elif isinstance(node, Binary):
         check_semantic_v2(node.left, cudalist) if isnode(node.left) else None
         cudalist.append(node.op)
+        #cudalist += str(node.op)
         check_semantic_v2(node.right, cudalist) if isnode(node.right) else None
-    return cudalist
+    return cudalist # returning tuple
     #return [node, cudalist] # do i need to return the node and the expression?
 
-# self.cudavarslist: [[(1, a)], [(2, b)], [(3, c), '*'],...]
-# to access '*' for example, we need to use double index. So self.cudavarslist[2][1] == '*'
-def cudavars_logic(cudavarslist):
-    """ 
-    this will be responsible for checking cuda variables and generate correct semantics depending on what we have.
-    Ex: if there's "int a = blockIdx.x;" and "int b = blockIdx.y;", we can generate "uint2 tid [[thread_position_in_grid]]" parameter
-    """
-    # how will I read the semantic on this list?
-    # each position will have the node and the expression in the code written [node, expr].
-    # but sometimes we'll have 2 different expr that can be absorbed into one, like:
-    # int a = blockIdx.x;
-    # int b = blockIdx.y;
-    #
-    # can be absorbed on metal into:
-    # uint2 tid [[thread_position_in_grid]]; where tid.x == blockIdx.x and tid.y == blockIdx.y
-    #
-    # how do I do that?
+# This produces the right cuda string based on the nodes! But we can't rely only on the string to compare to generate
+# a semantic node. Instead what we want to do is to analyse the tree structure of that node, and based on the structure
+# already be capable of knowning what that node represents. We don't need to check the string. Because we can calculate
+# the same id with different position for example, and the string won't be the same. We want to do pattern_matching
+def extract_cuda_expression(node, expr):
+    print("node to analyse: ", node)
+    if isinstance(node, Binary):
+        expr = extract_cuda_expression(node.left, expr=expr) #if isnode(node.left) else None
+        expr += f" {str(node.op)} "
+        expr = extract_cuda_expression(node.right, expr=expr) #if isnode(node.right) else None
+    elif isinstance(node, CudaVar):
+        expr += f"{node.base}.{node.dim}"
+    elif isinstance(node, Declaration) and node.value is not None:
+        expr = extract_cuda_expression(node.value, expr)
+    return expr
 
-    for i in range(len(cudavarslist)):
-        #print("HERE: ", str(cudavarslist[i]))
-        print("HERE: ", cudavarslist[i])
-        #if str(cudavarslist[i]) == "(blockIdx, x)":
-            #print(str())
-        #print("cudavarslist[i]:\n", cudavarslist[i])
-        #print(len(cudavarslist[i]))
-        if len(cudavarslist[i]) > 1:
-            for j in range(len(cudavarslist[i])):
-                print("LOOP: ", cudavarslist[i][j])
-        #print(cudavarslist[i][1]) if len(cudavarslist[i]) > 1 else None#print("None")
+def semantic_analysis(expr):
+    # analyse the cuda string extracted 
+    pass
+
+def pattern_matching(node):
+    """ checks the structure of the sub-tree of this node, and based on that structure generate a semantic node """
+    # this is the one that matters! figure it out a way to analyse the node subtree and check what computation is doing.
+    # if its something as global thread id, create a new node for it.
+    # should I use this for smem nodes as well? I dont think so
+    assert(isinstance(node, (Declaration, Assignment)))
+    print("node: ", node)
   
 
 # METAL -> CUDA:
@@ -319,3 +324,22 @@ def cudavars_logic(cudavarslist):
 # uint2 gid [[threadgroup_position_in_grid]]   -> blockIdx.{x, y}
 # uint2 tg_size [[threads_per_threadgroup]]    -> blockDim.{x, y}
 #
+#
+#
+# Obs: What I need to do:
+# - generate parameter variables that represent threadIdx, one for blockIdx, and one for blockDim.
+# So, if there's a use of threadIdx on the cuda code, create this parameter, if there's blockIdx being used on cuda code,
+# generate this parameter instead, and so on.
+# - then, we need to map which variable in cuda that's using which cuda variable, and use the Parameter variable node
+# to make the computation. 
+# Ex: 
+# in cuda: int tRow = threadIdx.x / CHUNKSIZE;
+#
+# in metal we generate a metal parameter node `uint3 tid [[thread_position_in_grid]]`
+# then on the computation we use: int `tRow = tid.x / CHUNKSIZE`. We need to map the parameter variable to use in 
+# calculation 
+# 
+# !!!!!!!!!! IMPORTANT !!!!!!!!!!
+# IMPORTANT: IMPLEMENT SEMANTIC ANALYSES. Detect what nodes are calculating. So for example, if I have a Binary node that computes
+# blockIdx.x * blockDim.x + threadIdx.x; mark that node that it calculates linear thread ID in the block. We can do this
+# by adding a flag to the node, or making new nodes
