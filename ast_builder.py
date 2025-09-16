@@ -223,6 +223,13 @@ class CudaVar:
         print(f"{space}dim={self.dim}")
         print(")")
 
+@dataclass
+class ThreadId:
+    dim: str
+
+    def pretty_print(self, indent=0):
+        raise NotImplementedError 
+
 # Transformer class
 class CUDATransformer(Transformer):
     """ 
