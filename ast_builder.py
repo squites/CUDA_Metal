@@ -2,10 +2,6 @@ from lark import Transformer, Token
 from dataclasses import dataclass
 from typing import Union, List, Optional
 
-# OBS: add parent attribute to make reference to the parent node of a node. This will help with tracking variables
-# Or maybe I can pass the node as parent on the visit method, because we call visit for the children of that node. So we just need
-# to pass the node itself as parent. Then we check the parent of that node
-
 # classes for nodes of the Abstract Syntax Tree. So each class is an Object that will be a node when called.
 class CUDA_Ast:
     def children(self):
@@ -55,14 +51,9 @@ class Kernel(CUDA_Ast):
 @dataclass
 class Parameter(CUDA_Ast):
     mem_type: Optional[str]# = "__global__"
-    #const: Optional[str] # need to treat when params are "const"
     type: str
     name: str
     #value: str
-
-    #def pretty_print(self, indent):
-    #    space = " " * indent
-    #    print(f"{space}Parameter(type={self.type}, name={self.name}, mem_type={self.mem_type}, const={self.const})")
 
     def pretty_print(self, indent):
         space = " " * indent
@@ -154,7 +145,6 @@ class ForStatement(Statement):
         print(f"{space*2}increment={self.increment},")
         print(f"{space*2}forBody={self.forBody}")
         print("    )")
-
 
 # base class for expressions. Base classes define a common type
 class Expression(CUDA_Ast):
@@ -312,7 +302,6 @@ class CUDATransformer(Transformer):
         cond = items[1]
         incr = items[2]
         forBody = items[3:]
-        #init, cond, incr, forBody = items
         return ForStatement(init=init, condition=cond, increment=incr, forBody=forBody)
 
     def expression(self, items):
@@ -400,7 +389,6 @@ class METAL_Kernel(METAL_Ast):
 @dataclass
 class METAL_Parameter(METAL_Ast):
     memory_type: str #= None
-    #constant: str = ""
     type: str
     name: str
     buffer: Optional[str] # for some parameters we use this buffer
@@ -482,52 +470,3 @@ class METAL_Var(METAL_Ast):
 class METAL_GlobalThreadId(METAL_Ast):
     def __init__(self):
         raise NotImplementedError
-    #pass
-
-# ------------------------------ DOC ---------------------------------
-# 
-# "binary" = 2 operands and 1 operator: 2 + 3 or 2 + (3 * 4) or a + b
-# "literal" = constant value: 2 or 3.1 or "string"
-# "variable" = a named identifier: a or result or threadIdx
-
-# Expression is "Term((+|-) Term)*" . Ex: (8 + 24 * 2) is an expression because there are one Term '8' + another Term '24 * 2'
-# Term is "Factor((*|/) Factor)*" Ex: (8) + (24 * 2), so 8 is a term and (24 * 2) is another term, because they are splitted by + signal
-# Factor are the numbers. Ex: 8 + 24 * 2, so 8, 24, 2 are all factors
-
-
-# Transformer funcionality:
-# Parse tree only has Tree() or Token().:
-#   - Tree(data=rule_name, children=[...]) and
-#   - Token(type=TERMINAL_SYMBOL, value)
-#
-# Tree() represent grammar rules. Token() represent terminal symbols (leaves).
-#
-# Imagine we have:
-# Tree(Token('RULE', 'qualifier'), [Token('QUALIFIER', '__global__')])
-# 1) - data is a Token('RULE', 'qualifier'), which means that the rule_name is 'qualifier'
-#    - has one child [Token('QUALIFIER', '__global__')], which is a terminal token with the string '__global__'
-#
-# 2) Transformer sees the Tree(...)
-#    - extracts the rule_name from data which is "qualifier"
-#    - it looks for a method in Transformer class called "def qualifier()"
-#
-# 3) Before calling the method, the Transformer recursively transforms the children
-#    - the child is a Token(), so converts to its string value which is "__global__"
-#    - after doing this with all the children, it calls the qualifier method passing the children as parameters
-#      so: def qualifier(self, ["__global__"])
-# 
-# 4) The qualifier method receives ["__global__"]:
-#    - then it can create an AST node calling the corresponded class "Qualifier(...)"  or simply returns the string.
-#
-# When to return a string and when to create a AST node?
-# Node: when represents a semantic structure. is not just a string, but a construct with meaning and behavior
-# string: when is just a primitive value like: "int", 'x', "__global__", ...
-#
-# structure:
-# Parse Tree:
-#   Token(type="TYPE_NAME", value="actual_text")
-#   Tree(data="rule_name", children=[...]) # data: str, children: list of Tree()s and Token()s
-#
-# AST:
-#   - for every Tree(data="rule", children=[...]), Lark finds the method called "def rule(self, children)"
-#     This method transform the parse_tree node into python object - AST node.

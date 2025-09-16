@@ -31,7 +31,6 @@ class CUDAVisitor(object):
         name = node.name
         
         if node.children():
-            #params = []
             param_idx = -1
             body = []
             for child in node.children():
@@ -48,11 +47,10 @@ class CUDAVisitor(object):
     def visit_Parameter(self, node, buffer_idx=0):
         mem_type = metal_map(node.mem_type)
         if node.mem_type == "device" and node.type == "int*" or node.type == "float*":
-            #buffer_idx = self.kernel_params.index(node) #get_param_idx(self.kernel_params, node) #+= 1
             buffer = f"[[buffer({buffer_idx})]]"
         else:
-            mem_type = "" #"constant"
-            buffer = None # when its not a vector, matrix or tensor
+            mem_type = ""
+            buffer = None
         return METAL_Parameter(memory_type=mem_type, type=node.type, name=node.name, buffer=buffer)
 
     def visit_Body(self, node):
@@ -66,9 +64,6 @@ class CUDAVisitor(object):
             return METAL_Body(statements)
         else:
             return METAL_Body(node.statement)
-
-    def visit_Statement(self, node):
-        pass
 
     # obs: for tid and gid, we are generating the right Parameter() node, but they are still inside the 
     # body of the kernel. We need to have a way to move them into Parameters when they're thread index 
@@ -92,10 +87,6 @@ class CUDAVisitor(object):
                 self.cudavarslist.append(cudavars) if cudavars != [] else None
                 #print(f"cudavars: {cudavars}\nlen: {len(cudavars)}")
                 #print(f"self.cudavarslist: {self.cudavarslist}")
-
-                # outadated
-                # idea: if there's cuda var inside body, create METAL_Parameter node and add to self.kernel_params
-                # then, check if that node already have been added. If not add to the list.
 
                 # probably the stupidest way to make this, but that'll do for now
                 for var in range(len(self.cudavarslist)):                                 # [var[0(0,)]]
@@ -142,8 +133,7 @@ class CUDAVisitor(object):
         return METAL_IfStatement(condition=cond, if_body=body)
 
     def visit_ForStatement(self, node, parent=None):
-        #if node.init and node.condition and node.increment is not None:
-        init = self.visit(node.init, parent=node) #if node.init is not None else ""
+        init = self.visit(node.init, parent=node)
         cond = self.visit(node.condition, parent=node)
         incr = self.visit(node.increment, parent=node)
         stmts = []
@@ -260,7 +250,7 @@ def semantic_analysis(node): # this calls pattern_matching, where it'll classify
     """ checks the structure of the sub-tree of this node, and based on that structure generate a semantic node """
     # this is the one that matters! figure it out a way to analyse the node subtree and check what computation is doing.
     # if its something as global thread id, create a new node for it.
-    # should I use this for smem nodes as well? I dont think so
+    #
     # How the pattern matching must work:
     # 1 - canonalize(normalize): operations stays the same format(order) always
     # 2 - pattern matching: when you see some specific node, rewrite to a new semantic node ex: Global1DThreadId()
@@ -280,8 +270,6 @@ def canonalize(node): # receives any node? Or only Binary
     """ change the `shape` of the subtree to always stay the same format """
     #assert isinstance(node, Binary), "invalid node!"
     print("canonalizing node: ", node)
-
-    # case 2:
     #   Binary(
     #     op='+', 
     #     left=Binary(
@@ -322,12 +310,8 @@ def canonalize(node): # receives any node? Or only Binary
         elif isinstance(node.left, (Literal, Variable)):
             node.left = None if node.left == 1 else node.left
             print("NODE 2: ", node)    
-
-
     else:
         return "AAAAA"
-
-
     return node
 
 #   Binary(
@@ -353,77 +337,6 @@ def patterns(pattern): # will have the patterns
     match pattern:
         case "threadIdx": pass 
 
-# METAL -> CUDA:
-# Grid        -> Grid
-# Threadgroup -> thread block
-# Thread      -> thread
-# SIMD_group  -> Warp
-# Threadgroup memory -> SMEM
-# Device memory -> GMEM
-# 
-# threadGroup == block
-# [[thread_position_in_grid]]        == blockIdx.x * blockDim.x + threadIdx.x  # global thread index
-# [[threadgroup_position_in_grid]]   == blockIdx    # block index
-# [[thread_position_in_threadgroup]] == threadIdx   # thread index within the thread block
-# [[threads_per_threadgroup]]        == blockDim    # dimensions of a thread block
-# [[threads_per_grid]]               == blockDim * gridDim  # total thread dimension
-# 
-# threadgroup == __shared__
-# constant    == __constant__
-# gridDim   == [[threads_per_grid]]
-# blockDim  == [[threads_per_threadgroup]]
-# threadIdx == [[thread_position_in_threadgroup]]
-
-#
-# --- Understanding memory
-# if you parameter is: `device float* a`, then `a` points to GPU device memory. It is a buffer that must be allocated
-# and bound from the CPU side.
-# if it is: `constant float* a`, its also a buffer but immutable and read-only for the kernel.
-#
-# When we use `[[buffer(n)]]`?
-# if the parameter is a device or constant pointer to memory, must have `[[buffer(i)]]`. If it comes from CPU as a 
-# buffer (MTLBuffer or setBytes) -> mark it with [[buffer(i)]]
-#
-# How does the CPU and GPU communicate in Metal?
-# there's a shared CPU/GPU memory state between them. It has multiple buffer levels inside this memory state.
-# - CPU basically says: `setBuffer at index 0 with array A`. So stores the array A at buffer 0 on shared memory state 
-# - GPU can read the values store in these buffers
-# `device float* array [[buffer(2)]]`: this means that we can write to this buffer `array` at [[buffer(2)]]
-# - `uint2 index [[thread_position_in_grid]]`: This means that we have `index` for the thread in a 2D grid.
-# For example: in CUDA we write:
-# `row = blockIdx.x * blockDim.x + threadIdx.x;` and 
-# `col = blockIdx.y * blockDim.y + threadIdx.y;`
-# In Metal we have:
-# `uint2 index [[thread_position_in_grid]];`
-# `row = index.x;`
-# `col = index.y;`
-# Example:
-# x, x, x,
-# x, x, x,
-# T, x, x,
-#
-# T has position uint2 = (0,2) in the grid
-#
-#
-# uint2 tid [[thread_position_in_threadgroup]] -> threadIdx.{x, y}
-# uint2 gid [[threadgroup_position_in_grid]]   -> blockIdx.{x, y}
-# uint2 tg_size [[threads_per_threadgroup]]    -> blockDim.{x, y}
-#
-#
-#
-# Obs: What I need to do:
-# - generate parameter variables that represent threadIdx, one for blockIdx, and one for blockDim.
-# So, if there's a use of threadIdx on the cuda code, create this parameter, if there's blockIdx being used on cuda code,
-# generate this parameter instead, and so on.
-# - then, we need to map which variable in cuda that's using which cuda variable, and use the Parameter variable node
-# to make the computation. 
-# Ex: 
-# in cuda: int tRow = threadIdx.x / CHUNKSIZE;
-#
-# in metal we generate a metal parameter node `uint3 tid [[thread_position_in_grid]]`
-# then on the computation we use: int `tRow = tid.x / CHUNKSIZE`. We need to map the parameter variable to use in 
-# calculation 
-# 
 # !!!!!!!!!! IMPORTANT !!!!!!!!!!
 # IMPORTANT: IMPLEMENT SEMANTIC ANALYSES. Detect what nodes are calculating. So for example, if I have a Binary node that computes
 # blockIdx.x * blockDim.x + threadIdx.x; mark that node that it calculates linear thread ID in the block. We can do this
