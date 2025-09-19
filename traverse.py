@@ -252,68 +252,23 @@ def semantic_analysis(node): # this calls pattern_matching, where it'll classify
     # if its something as global thread id, create a new node for it.
     #
     # How the pattern matching must work:
-    # 1 - canonalize(normalize): operations stays the same format(order) always
+    # 1 - canonicalize(normalize): operations stays the same format(order) always
     # 2 - pattern matching: when you see some specific node, rewrite to a new semantic node ex: Global1DThreadId()
     assert isinstance(node, (Declaration, Assignment, Binary, CudaVar)), "Invalid node!"
     print("\nSemantic Analysis")
+    print("node: ", node)
     for child in node.children():
         print("child: ", child)
         pattern_matching(child)
         # ...
 
 def pattern_matching(node): # will recursively go down until there's no more Binary node, and return a pattern for it
-    newnode = canonalize_v2(node)
+    print("pattern matching (node: ", node)
+    newnode = canonicalize(node)
     print("newnode: ", newnode)
+    # try to normalize and find get the pattern matching here
 
-
-def canonalize(node): # receives any node? Or only Binary
-    """ change the `shape` of the subtree to always stay the same format """
-    #assert isinstance(node, Binary), "invalid node!"
-    print("canonalizing node: ", node)
-    #   Binary(
-    #     op='+', 
-    #     left=Binary(
-    #         op='*', 
-    #         left=CudaVar(base='threadIdx', dim='x'), 
-    #         right=Literal(value='1')), 
-    #     right=Binary(
-    #         op='*', 
-    #         left=CudaVar(base='blockIdx', dim='x'), 
-    #         right=CudaVar(base='blockDim', dim='x'))))
-
-    if node.op == "+":
-        if not isinstance(node.left, Binary) and isinstance(node.right, Binary):
-            print("Wrong format!")
-            #tmp = node.left
-            #node.left = node.right
-            #node.right = tmp
-            #print("node in '+': ", node)
-            canonalize(node.right)
-            #canonalize(node.right)
-            #new = Binary(op=node.op, left=node.right, right=node.left)
-            #return new
-        #elif isinstance((node.left, node.right), (Literal, Variable)):
-        #    pass
-        else:
-            pass
-            #canonalize(node.left)
-            #return node
-    elif node.op == "*":
-        print("entrou no ELIF")
-        if isinstance(node.right, (Literal, Variable)):
-            if str(node.right) == "1": 
-                node.right = None 
-            else:
-                node.right = node.right
-            print("NODE 1: ", node)
-        
-        elif isinstance(node.left, (Literal, Variable)):
-            node.left = None if node.left == 1 else node.left
-            print("NODE 2: ", node)    
-    else:
-        return "AAAAA"
-    return node
-
+# ex: 
 #   Binary(
 #     op='+', 
 #     left=Binary(
@@ -325,17 +280,47 @@ def canonalize(node): # receives any node? Or only Binary
 #         left=CudaVar(base='blockIdx', dim='x'), 
 #         right=CudaVar(base='blockDim', dim='x'))))
 
-def canonalize_v2(node): # here will rewrite the node changing the order of the factors, so they can always be the same
-    if isinstance(node, Binary) and node.op == "+":
-        if not isinstance(node.left, Binary) and isinstance(node.right, Binary):
-            tmp = node.left            
-            node.left = node.right
-            node.right = tmp
+def canonicalize(node): # here will rewrite the node changing the order of the factors, so they can always be the same
+    print("normalize")
+    if isinstance(node, Binary):
+        if node.op == "+" or node.op == "*":
+            if not isinstance(node.left, Binary) and isinstance(node.right, Binary):
+                # (left=x, right=Bin)
+                tmp = node.left
+                node.left = node.right
+                node.right = tmp
+                print("swap: ", node)
+                new = canonicalize(node.left)
+            elif isinstance(node.left, Binary) and not isinstance(node.right, Binary):
+                # (left=Bin, right=x
+                new = canonicalize(node.right)
+            elif isinstance((node.left, node.right), Binary):
+                # (left=Bin, right=Bin)
+                new = canonicalize(node.left)
+                new = canonicalize(node.right)
+            else:
+                # Bin(left=x, right=x): This means that is the deepest Binary node in the tree. This node means something semantically
+                # ex: Binary(op='*', left=CudaVar(base='blockIdx', dim='x'), right=CudaVar(base='blockDim', dim='x'))
+                print("else: ", node)
+                print(extract_cuda_expression(node, "")) # this return the string formed by this node
+                # maybe I can extract the string and send to `patterns(extract_cuda_expression(node, "")`
+                # then the str extracted will match a pattern, and we return a semantic node for that Binary
+                # then the returned node is integrated to the subtree to compare with the parent node.
+                # obs: i don't know if we can do that because we'll be checking the string. I think it might be wrong!!! 
+
+            #return new
+        #elif node.op == "*":
+    else:
+        print("leaf: ", node)
+        #new = node
+        # is leaf
+        #patterns(node)
     return node
+
 
 def patterns(pattern): # will have the patterns 
     match pattern:
-        case "threadIdx": pass 
+        case "blockIdx.x * blockDim.x": pass 
 
 # !!!!!!!!!! IMPORTANT !!!!!!!!!!
 # IMPORTANT: IMPLEMENT SEMANTIC ANALYSES. Detect what nodes are calculating. So for example, if I have a Binary node that computes
