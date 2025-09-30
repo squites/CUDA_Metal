@@ -1,5 +1,5 @@
 from ast_builder import METAL_Kernel, METAL_Parameter, METAL_Body, METAL_Var, METAL_Declaration, METAL_Assignment, METAL_IfStatement, METAL_ForStatement, METAL_Binary, METAL_Literal, METAL_Variable, METAL_Array, METAL_Program
-from ast_builder import Parameter, Declaration, Assignment, Binary, Literal, CudaVar, Variable, Array
+from ast_builder import Parameter, Declaration, Assignment, Binary, Literal, CudaVar, Variable, Array, StartBlockIdx
 
 class CUDAVisitor(object):
     """ Traverse the ast nodes """
@@ -211,6 +211,7 @@ def get_param_idx(kernel_params, node):
             return int(p)
     return 0
 
+# remove later!
 def check_semantic_v2(node, cudalist, parent=None):
     """
     this is to group cudavars that we have in the cuda kernel, so we can translate them semantically the right way.
@@ -234,8 +235,8 @@ def check_semantic_v2(node, cudalist, parent=None):
 # a semantic node. Instead what we want to do is to analyse the tree structure of that node, and based on the structure
 # already be capable of knowning what that node represents. We don't need to check the string. Because we can calculate
 # the same id with different position for example, and the string won't be the same. We want to do pattern_matching
+# remove later!
 def extract_cuda_expression(node, expr):
-    #print("node to analyse: ", node)
     if isinstance(node, Binary):
         expr = extract_cuda_expression(node.left, expr=expr) #if isnode(node.left) else None
         expr += f" {str(node.op)} "
@@ -255,17 +256,17 @@ def semantic_analysis(node): # this calls pattern_matching, where it'll classify
     # 1 - canonicalize(normalize): operations stays the same format(order) always
     # 2 - pattern matching: when you see some specific node, rewrite to a new semantic node ex: Global1DThreadId()
     assert isinstance(node, (Declaration, Assignment, Binary, CudaVar)), "Invalid node!"
-    print("\nSemantic Analysis")
-    print("node: ", node)
+    print("-------------------------------------------------------------------------------------")
+    print("SEMANTIC ANALYSIS:\n", node)
     for child in node.children():
-        print("child: ", child)
         pattern_matching(child)
         # ...
 
 def pattern_matching(node): # will recursively go down until there's no more Binary node, and return a pattern for it
-    print("pattern matching (node: ", node)
-    newnode = canonicalize(node)
-    print("newnode: ", newnode)
+    print("PATTERN MATCHING:\n", node)
+    #newnode = canonicalize(node)
+    new_node = canonicalize(node)
+    print("Rewrite\n", new_node)
     # try to normalize and find get the pattern matching here
 
 # ex: 
@@ -280,47 +281,110 @@ def pattern_matching(node): # will recursively go down until there's no more Bin
 #         left=CudaVar(base='blockIdx', dim='x'), 
 #         right=CudaVar(base='blockDim', dim='x'))))
 
+# this canonicalizer is wrong! I need to understand how to do it for entire expressions
+# what to do: 
+# 1-flatten (this gets each term separately), 
+# 2-canonicalize terms (if one term is `complex`, calls recursively again)
+# 3-sort the terms to have an "hierarchy"
+# 4-rebuild the subtree
 def canonicalize(node): # here will rewrite the node changing the order of the factors, so they can always be the same
-    print("normalize")
-    if isinstance(node, Binary):
-        if node.op == "+" or node.op == "*":
-            if not isinstance(node.left, Binary) and isinstance(node.right, Binary):
-                # (left=x, right=Bin)
-                tmp = node.left
-                node.left = node.right
-                node.right = tmp
-                print("swap: ", node)
-                new = canonicalize(node.left)
-            elif isinstance(node.left, Binary) and not isinstance(node.right, Binary):
-                # (left=Bin, right=x
-                new = canonicalize(node.right)
-            elif isinstance((node.left, node.right), Binary):
-                # (left=Bin, right=Bin)
-                new = canonicalize(node.left)
-                new = canonicalize(node.right)
-            else:
-                # Bin(left=x, right=x): This means that is the deepest Binary node in the tree. This node means something semantically
-                # ex: Binary(op='*', left=CudaVar(base='blockIdx', dim='x'), right=CudaVar(base='blockDim', dim='x'))
-                print("else: ", node)
-                print(extract_cuda_expression(node, "")) # this return the string formed by this node
-                # maybe I can extract the string and send to `patterns(extract_cuda_expression(node, "")`
-                # then the str extracted will match a pattern, and we return a semantic node for that Binary
-                # then the returned node is integrated to the subtree to compare with the parent node.
-                # obs: i don't know if we can do that because we'll be checking the string. I think it might be wrong!!! 
-
-            #return new
-        #elif node.op == "*":
-    else:
-        print("leaf: ", node)
-        #new = node
-        # is leaf
-        #patterns(node)
+    print("CANONICALIZE:\n", node)
+    ops = ["+", "*"]
+    if isinstance(node, Binary) and node.op in ops:
+        ordered_terms = reorder(flatten(node, node.op))
+        print("ordered terms:", ordered_terms)
+        # reconstruct node based on the ordered terms
+    else: # tirar else
+        print("caiu ELSE, vai retornar o node")
     return node
+
+def flatten(node, op="+"): # switch these ops to be nodes as well
+    """ separates the terms individually (in nodes). At first we separate by `+`, but then all commutative ops """
+    print(f"FLATTEN OP({op}):\n{node}")
+    if isinstance(node, Binary) and node.op == op:
+        left = flatten(node.left, op=op)
+        #print("left:", left)
+        right = flatten(node.right, op=op)
+        #print("right:", right)
+        print("left+right:", left+right, len(left+right))
+        return left+right
+    else:
+        return [node]
+
+# refactor this eventually, to get to call flattened only once instead of twice
+def reorder(terms):
+    """ get the flattened terms separated by `*` and reorder the nodes based on an order """
+    print("REORDER 2:\n", terms)
+    # [(1 * threadIdx.x), (blockIdx.x * blockDim.x)] -> len=2
+    # needs to be in the end:
+    # [[1, threadIdx.x], [blockIdx.x, blockDim.x]] -> len=2x2
+
+    for t in range(len(terms)):
+        if isinstance(terms[t], Binary) and terms[t].op == "*":
+            terms[t] = flatten(terms[t], op=terms[t].op) # for each term, we flatten into factors
+            print("terms[t]: ", terms[t])
+            terms[t] = swap_terms(terms[t]) # reorder factors
+            print("terms[t] (order): ", terms[t])
+
+    print("return terms: ", terms, len(terms))
+    return terms
+
+def swap_terms(terms):
+    """ swap order of terms based on the hierarchy tidx->bidx->bdim->gdim """
+    print("SWAP:\n", terms)
+    hierarchy = {
+        "threadIdx": 0,
+        "blockIdx": 1,
+        "blockDim": 2,
+        "gridDim": 3,
+    }
+
+    for i in range(len(terms)-1):
+        for j in range(1, len(terms)):
+            if isinstance(terms[i], CudaVar) and isinstance(terms[j], CudaVar):
+                if hierarchy.get(terms[i].base) > hierarchy.get(terms[j].base):
+                    tmp = terms[i]
+                    terms[i] = terms[j]
+                    terms[j] = tmp
+            elif (isinstance(terms[i], Literal) and not isinstance(terms[j], Literal)):
+                # swap (1, blockIdx) -> (blockIdx, 1) -> after this will be folded
+                # add a flag to remove?
+                tmp = terms[i]
+                terms[i] = terms[j]
+                terms[j] = tmp
+                # constant fold to remove the variables if they're unecessary
+    return terms
+
+def fold(expr):
+    # does constant folding
+    raise NotImplementedError
 
 
 def patterns(pattern): # will have the patterns 
     match pattern:
-        case "blockIdx.x * blockDim.x": pass 
+        # blockIdx: block id on grid.   blockDim: dimensions of the block
+        case "blockIdx.x * blockDim.x": return StartBlockIdx() #startIdxBlock
+        case "": return None
+
+#class ExprCanonicalizer:
+#    """ canonicalize/normalize the expression to always have the same format """
+#    def canonicalize(self, node):
+#        if isinstance(node, Binary):
+#            return self._canonicalize_bin(node)
+#        
+#    def _canonicalize_bin(self, node):
+#        # node: Binary()
+#        left = self.canonicalize(node.left) if isinstance(node.left, Binary) else node
+#        right = self.canonicalize(node.right) if isinstance(node.right, Binary) else node
+#        print("left: ", left)
+#        print("right: ", right)
+
+
+
+
+
+
+
 
 # !!!!!!!!!! IMPORTANT !!!!!!!!!!
 # IMPORTANT: IMPLEMENT SEMANTIC ANALYSES. Detect what nodes are calculating. So for example, if I have a Binary node that computes

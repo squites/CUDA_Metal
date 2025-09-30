@@ -7,20 +7,10 @@ class CUDA_Ast:
     def children(self):
         return []
 
-    def pretty_print(self, indent=0):
-        raise NotImplementedError
-
 @dataclass
 class CUDA_Program(CUDA_Ast):
     header: Optional[str]
     kernel: "Kernel"
-
-    def pretty_print(self, indent=0):
-        space = " " * indent
-        print("Program(")
-        print("library")
-        print("kernel")
-        print(")")
 
 # semantic classes
 @dataclass
@@ -35,19 +25,6 @@ class Kernel(CUDA_Ast):
     def children(self):
         return [*self.parameters, self.body]
 
-    def pretty_print(self, indent=0):
-        space = " " * (indent+2)
-        print("Kernel(")
-        print(f"{space}qualifier={self.qualifier},")
-        print(f"{space}type={self.type},")
-        print(f"{space}name={self.name},")
-        print(f"{space}parameters=[")
-        for param in self.parameters:
-            param.pretty_print(indent+4)
-        print(f"{space}],")
-        self.body.pretty_print(indent+2)
-        print(")") #{space}?
-
 @dataclass
 class Parameter(CUDA_Ast):
     mem_type: Optional[str]# = "__global__"
@@ -55,24 +32,12 @@ class Parameter(CUDA_Ast):
     name: str
     #value: str
 
-    def pretty_print(self, indent):
-        space = " " * indent
-        print(f"{space}Parameter(mem_type={self.mem_type}, type={self.type}, name={self.name})")
-
-
 @dataclass
 class Body(CUDA_Ast):
     statements: List["Statement"]
 
     def children(self):
         return [*self.statements]
-
-    def pretty_print(self, indent=0):
-        space = " " * indent
-        print(f"{space}Body(statements=[")
-        for stmnt in self.statements:
-            stmnt.pretty_print(indent+2)
-        print(f"{space}])")
 
 # base class for declaration and assignment
 class Statement(CUDA_Ast):
@@ -89,26 +54,11 @@ class Declaration(Statement):
     def children(self):
         return [self.value] if self.value is not None else []
 
-    def pretty_print(self, indent=0):
-        space = " " * (indent + 2)
-        print("    Declaration(")
-        print(f"{space}type={self.type},")
-        print(f"{space}name={self.name},")
-        print(f"{space}value={self.value}")
-        print("    )")
-
 @dataclass
 class Assignment(Statement):
     name: str
     value: "Expression" # instance of Expression class. "Expression" with quotes because Expression class is not yet defined
     # parent: Node
-
-    def pretty_print(self, indent=0):
-        space = " " * (indent+2)
-        print(f"    Assignment(")
-        print(f"{space}name={self.name},")
-        print(f"{space}value={self.value}")
-        print("    )")
 
 @dataclass
 class IfStatement(Statement):
@@ -118,13 +68,6 @@ class IfStatement(Statement):
 
     def children(self):
         return [*self.if_body] #if self.if_body is not None else []
-
-    def pretty_print(self, indent=0):
-        space = " " * (indent+2)
-        print("    IfStatement(")
-        print(f"{space*2}condition={self.condition},")
-        print(f"{space*2}if_body={self.if_body}")
-        print("    )")
 
 @dataclass
 class ForStatement(Statement):
@@ -136,15 +79,6 @@ class ForStatement(Statement):
 
     def children(self):
         return [self.forBody]
-    
-    def pretty_print(self, indent=0):
-        space = " " * (indent+2)
-        print("    ForStatement(")
-        print(f"{space*2}initialization={self.initialization},")
-        print(f"{space*2}condition={self.condition},")
-        print(f"{space*2}increment={self.increment},")
-        print(f"{space*2}forBody={self.forBody}")
-        print("    )")
 
 # base class for expressions. Base classes define a common type
 class Expression(CUDA_Ast):
@@ -157,35 +91,15 @@ class Binary(Expression):
     right: Expression
     #parent: Union[Statement, Expression]
 
-    def pretty_print(self, indent=0):
-        space = " " * indent
-        print(f"{space}Binary(")
-        print(f"{space}op={self.op},")
-        print(f"{space}left={self.left},")
-        print(f"{space}right={self.right}")
-        print(")")
-
 @dataclass
 class Literal(Expression): # constant
     value: Union[int, float]
     # parent: Node
 
-    def pretty_print(self, indent=0):
-        space = " " * indent
-        print(f"{space}Literal(")
-        print(f"{space}value={self.value}")
-        print(")")
-
 @dataclass
 class Variable(Expression): # var name
     name: str
     #parent: Node
-
-    def pretty_print(self, indent=0):
-        space = " " * indent
-        print(f"{space}Variable(")
-        print(f"{space}name={self.name}")
-        print(")")
 
 @dataclass
 class Array(Expression):
@@ -193,32 +107,22 @@ class Array(Expression):
     index: Expression
     # parent: Node
 
-    def pretty_print(self, indent=0):
-        space = " " * indent
-        print(f"{space}Array(")
-        print(f"{space}name={self.name},")
-        print(f"{space}index={self.index}")
-        print(")")
-
 @dataclass
 class CudaVar:
     base: str # blockIdx, threadIdx, ...
     dim: str # x, y, z
     # parent: Node
 
-    def pretty_print(self, indent=0):
-        space = " " * indent
-        print(f"{space}CudaVar(")
-        print(f"{space}base={self.base},")
-        print(f"{space}dim={self.dim}")
-        print(")")
+class SemanticNode:
+    pass
 
 @dataclass
-class ThreadId:
+class ThreadId(SemanticNode):
     dim: str
 
-    def pretty_print(self, indent=0):
-        raise NotImplementedError 
+@dataclass
+class StartBlockIdx(SemanticNode):
+    dim: str = None
 
 # Transformer class
 class CUDATransformer(Transformer):
