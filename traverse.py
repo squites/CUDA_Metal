@@ -266,20 +266,7 @@ def pattern_matching(node): # will recursively go down until there's no more Bin
     print("PATTERN MATCHING:\n", node)
     #newnode = canonicalize(node)
     new_node = canonicalize(node)
-    print("Rewrite\n", new_node)
     # try to normalize and find get the pattern matching here
-
-# ex: 
-#   Binary(
-#     op='+', 
-#     left=Binary(
-#         op='*', 
-#         left=CudaVar(base='threadIdx', dim='x'), 
-#         right=Literal(value='1')), 
-#     right=Binary(
-#         op='*', 
-#         left=CudaVar(base='blockIdx', dim='x'), 
-#         right=CudaVar(base='blockDim', dim='x'))))
 
 # this canonicalizer is wrong! I need to understand how to do it for entire expressions
 # what to do: 
@@ -291,21 +278,19 @@ def canonicalize(node): # here will rewrite the node changing the order of the f
     print("CANONICALIZE:\n", node)
     ops = ["+", "*"]
     if isinstance(node, Binary) and node.op in ops:
-        ordered_terms = reorder(flatten(node, node.op))
-        print("ordered terms:", ordered_terms)
+        terms = reorder(flatten(node, node.op))
+        print("Swap(Flatten(Reorder:", terms)
+        rebuild(node, terms)#rebuild_node(node, ordered_terms)
         # reconstruct node based on the ordered terms
     else: # tirar else
-        print("caiu ELSE, vai retornar o node")
-    return node
+        return node
 
-def flatten(node, op="+"): # switch these ops to be nodes as well
+def flatten(node, op): # switch these ops to be nodes as well
     """ separates the terms individually (in nodes). At first we separate by `+`, but then all commutative ops """
     print(f"FLATTEN OP({op}):\n{node}")
     if isinstance(node, Binary) and node.op == op:
         left = flatten(node.left, op=op)
-        #print("left:", left)
         right = flatten(node.right, op=op)
-        #print("right:", right)
         print("left+right:", left+right, len(left+right))
         return left+right
     else:
@@ -313,7 +298,7 @@ def flatten(node, op="+"): # switch these ops to be nodes as well
 
 # refactor this eventually, to get to call flattened only once instead of twice
 def reorder(terms):
-    """ get the flattened terms separated by `*` and reorder the nodes based on an order """
+    """ get the flattened terms separated by `*` and reorder the nodes based on priority """
     print("REORDER 2:\n", terms)
     # [(1 * threadIdx.x), (blockIdx.x * blockDim.x)] -> len=2
     # needs to be in the end:
@@ -321,15 +306,19 @@ def reorder(terms):
 
     for t in range(len(terms)):
         if isinstance(terms[t], Binary) and terms[t].op == "*":
-            terms[t] = flatten(terms[t], op=terms[t].op) # for each term, we flatten into factors
-            print("terms[t]: ", terms[t])
-            terms[t] = swap_terms(terms[t]) # reorder factors
-            print("terms[t] (order): ", terms[t])
+            #terms[t] = swap(flatten(terms[t], op=terms[t].op))
+            op = terms[t].op
+            terms[t] = flatten(terms[t], op=terms[t].op)
+            print("terms[t] flatten: ", terms[t])
+            terms[t] = swap(terms[t], op=op)
+            #terms[t] = flatten(terms[t], op=terms[t].op) # for each term, we flatten into factors
+            print("terms[t] swap: ", terms[t])
+            #terms[t] = swap_terms(terms[t]) # reorder factors
 
     print("return terms: ", terms, len(terms))
     return terms
 
-def swap_terms(terms):
+def swap(terms, op):
     """ swap order of terms based on the hierarchy tidx->bidx->bdim->gdim """
     print("SWAP:\n", terms)
     hierarchy = {
@@ -347,24 +336,85 @@ def swap_terms(terms):
                     terms[i] = terms[j]
                     terms[j] = tmp
             elif (isinstance(terms[i], Literal) and not isinstance(terms[j], Literal)):
-                # swap (1, blockIdx) -> (blockIdx, 1) -> after this will be folded
-                # add a flag to remove?
+                # (1, blockIdx) -> (blockIdx, 1)
                 tmp = terms[i]
                 terms[i] = terms[j]
                 terms[j] = tmp
-                # constant fold to remove the variables if they're unecessary
+                # constant fold to remove the constants if they're unecessary
+                fold(terms, op)
     return terms
 
-def fold(expr):
-    # does constant folding
-    raise NotImplementedError
+def fold(terms, op):
+    print("FOLD:\n", terms, op)
+    for sub in range(len(terms)):
+        if isinstance(terms[sub], Literal):
+            if terms[sub].value == "1" and op == "*":
+                terms.remove(terms[sub])
+            elif terms[sub].value == "0" and op == "+":
+                terms.remove(terms[sub])
+            elif terms[sub].value == "0" and op == "*":
+                return None
+            else:
+                # accumulate constants to be one (not implemented yet!)
+                #acc += terms[sub].value
+                pass
+
+    return terms
+
+#[[CudaVar(), Literal()], [CudaVar(), CudaVar()]]
+def rebuild_node(node, terms):
+    """ rebuild the canonicalized node but now a semantic node """
+    print(f"REBUILD:\nNode: {node}\nTerms: {terms}")
+    # we will rebuild a Binary node again
+    assert isinstance(node, Binary), "Not Binary!"
+    op = node.op # store the op of the bin expr
+    for term in terms:
+        print(type(term), term)
+        if isinstance(term, list) and len(term) == 2:
+            left = term[0]
+            right = term[1]
+            node1 = Binary(op="A", left=left, right=right)
+            print(node1)
+
+# need to make this recursive to get all the nodes   
+def rebuild(node, terms): #[ [Cuda(), Literal()], [Cuda(), Cuda()] ]
+    print(f"REBUILD:\nNode: {node}\nTerms: {terms}") 
+    #if isinstance(terms, list):
+    #    print("terms[0]", terms[0], type(terms[0]))
+    #    print("terms[1:]", [term for term in terms[1:]])
+    #    if len(terms) == 1:
+    #        res = terms[0]
+    #    else:
+    #        res = terms[0]
+    #        for term in terms[1:]:
+    #            res = Binary(op=node.op, left=res, right=term)
+    #        print("res: ", res)
+    #    return res
+    #else:
+    #    res = terms      
+
+    #for term in terms:
+    #    print("term: ", term)
+    if isinstance(terms, list):
+        #for tx, ty in terms:
+        resL = rebuild(node, terms)
+        #resL = rebuild(node, terms)
+        print("resL:", resL)
+        #resR = rebuild(node, terms)
+        #resR = rebuild(node, term[1])
+        return Binary(op="+", left=resL, right=resL)#resL
+    else:
+        return terms
+        
+    
 
 
 def patterns(pattern): # will have the patterns 
-    match pattern:
+    #match pattern:
         # blockIdx: block id on grid.   blockDim: dimensions of the block
-        case "blockIdx.x * blockDim.x": return StartBlockIdx() #startIdxBlock
-        case "": return None
+    #    case Binary(): return StartBlockIdx() #startIdxBlock
+    #    case "": return None
+    raise NotImplementedError
 
 #class ExprCanonicalizer:
 #    """ canonicalize/normalize the expression to always have the same format """
