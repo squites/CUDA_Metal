@@ -264,44 +264,84 @@ def semantic_analysis(node): # this calls pattern_matching, where it'll classify
 
 def pattern_matching(node): # will recursively go down until there's no more Binary node, and return a pattern for it
     print("PATTERN MATCHING:\n", node)
-    #newnode = canonicalize(node)
     new_node = canonicalize(node)
     # try to normalize and find get the pattern matching here
 
-# this canonicalizer is wrong! I need to understand how to do it for entire expressions
-# what to do: 
-# 1-flatten (this gets each term separately), 
-# 2-canonicalize terms (if one term is `complex`, calls recursively again)
-# 3-sort the terms to have an "hierarchy"
-# 4-rebuild the subtree
 def canonicalize(node): # here will rewrite the node changing the order of the factors, so they can always be the same
     print("CANONICALIZE:\n", node)
     ops = ["+", "*"]
     if isinstance(node, Binary) and node.op in ops:
-        terms = reorder(flatten(node, node.op))
+        #terms = reorder(flatten(node, node.op))
+        terms = flatten(node, node.op)  # flatten "+" terms
+        print("flatten +:", terms)
+        for t in range(len(terms)):
+            if isinstance(terms[t], Binary):    
+                terms[t] = flatten(terms[t], terms[t].op) # flatten "*" factors
+
+        print("terms:", terms)
+        # add tags for each term: e.g. (CudaVar(base="threadIdx", dim="x"), tag="thread")
+        term_dict = addtag(terms)
+        print("add tag:", term_dict)
+        transformed_terms = transform(term_dict)
+        print("transformed_terms:", transformed_terms)
+        terms = reorder(terms)
         print("Swap(Flatten(Reorder:", terms)
-        rebuild(node, terms)#rebuild_node(node, ordered_terms)
-        compare(terms)
+        #rebuild(node, terms)#rebuild_node(node, ordered_terms)
+        #compare(terms)
         # reconstruct node based on the ordered terms
     else: # tirar else
         return node
 
-def flatten(node, op): # switch these ops to be nodes as well
+def flatten(node, op):
     """ separates the terms individually (in nodes). At first we separate by `+`, but then all commutative ops """
     print(f"FLATTEN OP({op}):\n{node}")
-    if isinstance(node, Binary) and node.op == op:
-        left = flatten(node.left, op=op)
-        right = flatten(node.right, op=op)
+    # if i take off the op == node.op, we flatten everything, but we don't separate the factors vs terms, so we have:
+    # [1, tidx, bidx, bdim] instead of [[1, tidx], [bidx, bdim]]
+    if isinstance(node, Binary) and op == node.op:
+        left = flatten(node.left, op=node.op)
+        right = flatten(node.right, op=node.op)
         print("left+right:", left+right, len(left+right))
         return left+right
     else:
         return [node]
+
+# [[Cuda("threadIdx")], [Cuda("blockIdx"), Cuda("blockDim")]]
+# this code is disgusting! But was the initial way that worked
+def addtag(terms): # maybe transform into a dict?
+    print("ADD TAG:\n", terms)
+    for term in range(len(terms)):
+        if not isinstance(terms[term], list):
+            terms[term] = [terms[term]]
+        for sub in range(len(terms[term])):
+            if isinstance(terms[term][sub], CudaVar):
+                if "thread" in terms[term][sub].base:
+                    terms[term][sub] = (terms[term][sub], "thread")
+                elif "block" in terms[term][sub].base:
+                    terms[term][sub] = (terms[term][sub], "block")
+                else:
+                    terms[term][sub] = (terms[term][sub], "grid")
+            elif isinstance(terms[term][sub], Literal):
+                terms[term][sub] = (terms[term][sub], "literal")
+    print("TERMOS: ", terms)
+
+    return terms
+
 
 # refactor this eventually, to get to call flattened only once instead of twice
 # PROBLEM: we are only reordering the subterms. But we are not ordering the terms. So if we have:
 # blockDim.x * blockIdx.x + threadIdx.x -> will be: [[blockIdx.x, blockDim.x], threadIdx.x], and it should be:
 #                                                   [threadIdx.x, [blockIdx.x, blockDim.x]]
 # possible solution: reorder based on the size of the subterm as well. If len(subterm) is 1, go to left.
+# solution: flatten everything first, and then reorder. Need to change swap function probably and also reorder. 
+# first reorder the inner flattened terms (*) and then the outer terms (+)
+
+#def reorder(terms):
+#    print("REORDER:\n", terms)
+#    for term in terms:
+#        print(type(term))
+#        if isinstance(term, list):
+#            term = swap(term)
+
 def reorder(terms):
     """ get the flattened terms separated by `*` and reorder the nodes based on priority """
     print("REORDER 2:\n", terms)
@@ -310,62 +350,89 @@ def reorder(terms):
     # [[1, threadIdx.x], [blockIdx.x, blockDim.x]] -> len=2x2
 
     for t in range(len(terms)):
-        if isinstance(terms[t], Binary) and terms[t].op == "*":
+        if isinstance(terms[t], Binary):# and terms[t].op == "*":
             op = terms[t].op
-            print("before flatten:", terms[t])
-            #terms[t] = swap(flatten(terms[t], op=op), op=op)
             terms[t] = flatten(terms[t], op=terms[t].op)
             print("terms[t] flatten: ", terms[t])
-            terms[t] = swap(terms[t], op=op)
-            print("terms[t] swap: ", terms[t])
-
-    # this works but is bad and probably wrong! Need to figure it out a proper way to do this
-    list_terms = []
-    var_terms = []
-    for term in terms:
-        count = 1
-        if not isinstance(term, list):
-            var_terms.append(term)
-            count += 1
-        else:
-            list_terms.append(term)
-    var_terms.append(list_terms)
-    terms = var_terms
-    print("var_terms:", var_terms)
-    print("return terms: ", terms, len(terms))
-
-            
+            #terms[t] = swap(terms[t], op=op)
+            #print("terms[t] swap: ", terms[t])        
     return terms
 
+# Maybe we need to change this. After we flatten the terms/factors, we may translate each element to what category
+# that element is. So, if we have 'threadIdx.x', we translate into "thread". If we have blockIdx.x or blockDim.x
+# we translate to "block". This way, instead of having [[threadIdx.x], [blockIdx.x, blockDim.x]] we'll have
+#[[thread], [block, block]].
+# Doing this we abstract, so instead of this saying: "this was blockIdx.x * blockDim.x specifically", this now means:
+# "this expression had a product of 2 block-level terms".
+#
+# To do that, we keep both layers of info. (before flatten):
+# node: CudaVar(base="threadIdx", dim="x"), and
+# semantic tag: (category="thread")
+# Then we flatten and reorder based on the semantic tag (for canonicalization)
+# 
+# Then on semantic node inference, once we detect a canonical signature pattern like: [[thread], [block,block]]
+# we map semantically to GlobalThreadID
+#def swap(terms, op="*"):
+#    """ swap order of terms based on the hierarchy tidx->bidx->bdim->gdim """
+#    print("SWAP:\n", terms)
+#    hierarchy = {
+#        "threadIdx": 0,
+#        "blockIdx": 1,
+#        "blockDim": 2,
+#        "gridDim": 3,
+#    }
+#    for i in range(len(terms)-1):
+#        for j in range(1, len(terms)):
+#            if isinstance(terms[i], CudaVar) and isinstance(terms[j], CudaVar):
+#                if hierarchy.get(terms[i].base) > hierarchy.get(terms[j].base):
+#                    tmp = terms[i]
+#                    terms[i] = terms[j]
+#                    terms[j] = tmp
+#            elif (isinstance(terms[i], Literal) and not isinstance(terms[j], Literal)):
+#                # (1, blockIdx) -> (blockIdx, 1)
+#                tmp = terms[i]
+#                terms[i] = terms[j]
+#                terms[j] = tmp
+#                # constant fold to remove the constants if they're unecessary
+#                fold(terms, op)
+#    return terms
 
-def swap(terms, op):
-    """ swap order of terms based on the hierarchy tidx->bidx->bdim->gdim """
-    print("SWAP:\n", terms)
-    hierarchy = {
-        "threadIdx": 0,
-        "blockIdx": 1,
-        "blockDim": 2,
-        "gridDim": 3,
+
+def swap(terms): # [[block, block], [thread]]
+    order = {    # [block, block]
+        "thread": 0,
+        "block": 1,
+        "grid": 2,
+        "literal": 3,
     }
 
-    for i in range(len(terms)-1):
-        for j in range(1, len(terms)):
-            if isinstance(terms[i], CudaVar) and isinstance(terms[j], CudaVar):
-                if hierarchy.get(terms[i].base) > hierarchy.get(terms[j].base):
-                    tmp = terms[i]
-                    terms[i] = terms[j]
-                    terms[j] = tmp
-            elif (isinstance(terms[i], Literal) and not isinstance(terms[j], Literal)):
-                # (1, blockIdx) -> (blockIdx, 1)
-                tmp = terms[i]
-                terms[i] = terms[j]
-                terms[j] = tmp
-                # constant fold to remove the constants if they're unecessary
-                fold(terms, op)
-    return terms
+    for term in terms:
+        if isinstance(term, list) and len(term) > 1:
+            # sort inner terms
+            sorted = swap(term)
+            #for sub in term:
+            #    if order.get(sub) 
+        else:
+            # sort outside terms
+            order.get(term)
 
-def compare(terms):
-    print("COMPARE:\n", terms)
+def transform(terms):
+    print("TRANSFORM:\n", terms)
+    semantic_terms = []
+    for term in terms:
+        if not isinstance(term, list):
+            continue
+        tags = []
+        for sub in term:
+            if isinstance(sub, tuple) and len(sub) > 1:
+                tags.append(sub[1])
+        print("tags:", tags)
+        # swap inner factors here?
+        tags = swap(tags)
+        semantic_terms.append(tags)
+    #print("semantic_terms:", semantic_terms)
+    return semantic_terms
+
 
 def fold(terms, op):
     print("FOLD:\n", terms, op)
@@ -389,7 +456,7 @@ def fold(terms, op):
 # if [threadIdx.x, [blockIdx.x, blockDim.x]] -> GlobalThreadID(dim="x")  
 def rebuild(node, terms): #[ [Cuda(), Literal()], [Cuda(), Cuda()] ]
     print(f"REBUILD:\nNode: {node}\nTerms: {terms}") 
-    assert isinstance(terms, list), "This node is not Binary!"
+    #assert isinstance(terms, list), "This node is not Binary!"
     for term in terms:
         left = None
         right = None
@@ -400,8 +467,8 @@ def rebuild(node, terms): #[ [Cuda(), Literal()], [Cuda(), Cuda()] ]
                 right = subterm
         else:
             pass
-        print("left:", left)
-        print("right:", right)
+        #print("left:", left)
+        #print("right:", right)
 
 
 def patterns(pattern): # will have the patterns 
