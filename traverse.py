@@ -71,9 +71,7 @@ class CUDAVisitor(object):
     # obs2: if i set a self.cudavarslist = [], this will store every Declaration node cuda vars. If i use it inside the 
     # function only the local list, I'll have only the current node cuda vars. Which one is better?
     def visit_Declaration(self, node, parent=None):
-        #expr = extract_cuda_expression(node, expr="")
         semantic_analysis(node)
-        #print(f"expr: {expr}\n")
         cudavars = []
         #cudavars = ""
         memory = node.memory if node.memory else None
@@ -197,8 +195,7 @@ def get_param_idx(kernel_params, node):
             return int(p)
     return 0
 
-
-# need to add after a tree normalization
+# need to add after a tree normalization (future optimization)
 # so if we have a node like Add(a, Add(b, c)) transform into Add(a, b, c)
 
 def semantic_analysis(node): # this calls pattern_matching, where it'll classify the child node based on the semantic meaning
@@ -257,8 +254,8 @@ def flatten(node, op):
         return [node]
 
 # [[Cuda("threadIdx")], [Cuda("blockIdx"), Cuda("blockDim")]]
-# this code is disgusting! But was the initial way that worked
-def addtag(terms): # maybe transform into a dict?
+# this code is disgusting! But was the initial way that worked, refactor later
+def addtag(terms):
     print("ADD TAG:\n", terms)
     for term in range(len(terms)):
         if not isinstance(terms[term], list):
@@ -278,85 +275,19 @@ def addtag(terms): # maybe transform into a dict?
 
 
 # refactor this eventually, to get to call flattened only once instead of twice
-# PROBLEM: we are only reordering the subterms. But we are not ordering the terms. So if we have:
-# blockDim.x * blockIdx.x + threadIdx.x -> will be: [[blockIdx.x, blockDim.x], threadIdx.x], and it should be:
-#                                                   [threadIdx.x, [blockIdx.x, blockDim.x]]
-# possible solution: reorder based on the size of the subterm as well. If len(subterm) is 1, go to left.
-# solution: flatten everything first, and then reorder. Need to change swap function probably and also reorder. 
-# first reorder the inner flattened terms (*) and then the outer terms (+)
-
 def reorder(terms):
     print("REORDER:\n", terms)
-    
-    #for term in terms:
-    #    term = swap(term, terms) # inner swap first
     terms = swap(terms)
-        #if isinstance(term, list):
-        #    term = swap(term) # this swap each term
     print("terms:", terms)
         #for subterm in term:
 
-
-#def reorder(terms):
-#    """ get the flattened terms separated by `*` and reorder the nodes based on priority """
-#    print("REORDER 2:\n", terms)
-#    # [(1 * threadIdx.x), (blockIdx.x * blockDim.x)] -> len=2
-#    # needs to be in the end:
-#    # [[1, threadIdx.x], [blockIdx.x, blockDim.x]] -> len=2x2
-#
-#    for t in range(len(terms)):
-#        if isinstance(terms[t], Binary):# and terms[t].op == "*":
-#            op = terms[t].op
-#            terms[t] = flatten(terms[t], op=terms[t].op)
-#            print("terms[t] flatten: ", terms[t])
-#            #terms[t] = swap(terms[t], op=op)
-#            #print("terms[t] swap: ", terms[t])        
-#    return terms
-
-# Maybe we need to change this. After we flatten the terms/factors, we may translate each element to what category
-# that element is. So, if we have 'threadIdx.x', we translate into "thread". If we have blockIdx.x or blockDim.x
-# we translate to "block". This way, instead of having [[threadIdx.x], [blockIdx.x, blockDim.x]] we'll have
-#[[thread], [block, block]].
-# Doing this we abstract, so instead of this saying: "this was blockIdx.x * blockDim.x specifically", this now means:
-# "this expression had a product of 2 block-level terms".
-#
-# To do that, we keep both layers of info. (before flatten):
-# node: CudaVar(base="threadIdx", dim="x"), and
-# semantic tag: (category="thread")
-# Then we flatten and reorder based on the semantic tag (for canonicalization)
-# 
 # Then on semantic node inference, once we detect a canonical signature pattern like: [[thread], [block,block]]
-# we map semantically to GlobalThreadID
-#def swap(terms, op="*"):
-#    """ swap order of terms based on the hierarchy tidx->bidx->bdim->gdim """
-#    print("SWAP:\n", terms)
-#    hierarchy = {
-#        "thread": 0,
-#        "block": 1,
-#        "grid": 2,
-#        "literal": 3,
-#        "variable": 4,
-#    }
-#    for i in range(len(terms)-1):
-#        for j in range(1, len(terms)):
-#            if isinstance(terms[i], CudaVar) and isinstance(terms[j], CudaVar):
-#                if hierarchy.get(terms[i].base) > hierarchy.get(terms[j].base):
-#                    tmp = terms[i]
-#                    terms[i] = terms[j]
-#                    terms[j] = tmp
-#            elif (isinstance(terms[i], Literal) and not isinstance(terms[j], Literal)):
-#                # (1, blockIdx) -> (blockIdx, 1)
-#                tmp = terms[i]
-#                terms[i] = terms[j]
-#                terms[j] = tmp
-#                # constant fold to remove the constants if they're unecessary
-#                fold(terms, op)
-#    return terms
+# we map semantically to GlobalThreadID()
 
-def swap(terms): # used to be swap(term, terms):
+def swap(terms):
     """ swap the order of inner and outer terms based on the priority order (low->high) """
     print("SWAP:\n", terms)
-    order = {    # [block, block]
+    order = {
         "thread": 0,
         "block": 1,
         "grid": 2,
@@ -365,8 +296,9 @@ def swap(terms): # used to be swap(term, terms):
 
     # v2 (inner sort)
     for t in range(len(terms)): # terms[t] == term
-        for i in range(len(terms[t])-1):
-            # fold here?
+        #print("terms[t]:", terms[t], len(terms[t]))
+        for i in range(len(terms[t])):
+            #print("terms[t][i]:", terms[t][i]) # here prints 'literal' twice because we're sorting inside the j loop
             for j in range(1, len(terms[t])):
                 if isinstance(terms[t], list) and len(terms[t]) > 1:
                     if order.get(terms[t][i][1]) > order.get(terms[t][j][1]):
@@ -374,35 +306,42 @@ def swap(terms): # used to be swap(term, terms):
                         terms[t][i] = terms[t][j]
                         terms[t][j] = tmp
         # fold here?
+        for f in terms[t]:
+            if isinstance(f[0], Literal):
+                #print("before fold terms[t]:", terms[t])
+                terms[t] = fold(terms[t]) # need to figure it out how to pass the 'op' to 'fold()'
+                #print("folded terms[t]:", terms[t])
+        print("terms:", terms)
         # ... here fold will only work with '*' expr, because each 't' term is a mul expr
     print("inner sorted terms:", terms)
 
     # (outer sort)
     for t1 in range(len(terms)-1):
-        print("terms[t1]:", terms[t1])
         for t2 in range(1, len(terms)):
-            print("terms[t2]:", terms[t2])
             # since its already inner sorted, the first tag will always be the priority tag of that term
             if order.get(terms[t1][0][1]) > order.get(terms[t2][0][1]):
                 tmp = terms[t1]
                 terms[t1] = terms[t2]
                 terms[t2] = tmp
-
     print("outer sorted terms:", terms)
 
     return terms
 
-
+# not working yet. figure it out!
 def fold(terms, op="*"):
     print("FOLD:\n", terms, op)
     for sub in range(len(terms)):
-        if isinstance(terms[sub], Literal):
-            if terms[sub].value == "1" and op == "*":
+        print("terms[sub]:", terms[sub])
+        print(type(terms[sub][0]))
+        print(terms[sub][0].value) if isinstance(terms[sub][0], Literal) else ""
+        if isinstance(terms[sub][0], Literal):# and len(terms[sub][0]) > 0:
+            if terms[sub][0].value == "1" and op == "*":
                 terms.remove(terms[sub])
-            elif terms[sub].value == "0" and op == "+":
+            elif terms[sub][0].value == "0" and op == "+":
                 terms.remove(terms[sub])
-            elif terms[sub].value == "0" and op == "*":
-                return None
+            elif terms[sub][0].value == "0" and op == "*":
+                terms.remove(terms) # not sure about this one
+                break
             else:
                 # accumulate constants to be one (not implemented yet!)
                 #acc += terms[sub].value
@@ -410,12 +349,7 @@ def fold(terms, op="*"):
     return terms
 
 
-
-
-
-
-
-
+# make this canonicalization as a class eventually
 #class ExprCanonicalizer:
 #    """ canonicalize/normalize the expression to always have the same format """
 #    def canonicalize(self, node):
@@ -428,12 +362,6 @@ def fold(terms, op="*"):
 #        right = self.canonicalize(node.right) if isinstance(node.right, Binary) else node
 #        print("left: ", left)
 #        print("right: ", right)
-
-
-
-
-
-
 
 
 # !!!!!!!!!! IMPORTANT !!!!!!!!!!
