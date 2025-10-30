@@ -224,7 +224,6 @@ def canonicalize(node): # here will rewrite the node changing the order of the f
     if isinstance(node, Binary) and node.op in ops:
         #terms = reorder(flatten(node, node.op))
         terms = flatten(node, node.op)  # flatten "+" terms
-        #print("flatten +:", terms)
         for t in range(len(terms)):
             if isinstance(terms[t], Binary):    
                 terms[t] = flatten(terms[t], terms[t].op) # flatten "*" factors
@@ -279,8 +278,8 @@ def addtag(terms):
 def reorder(terms):
     print("REORDER:\n", terms)
     terms = swap(terms)
-    print("terms:", terms)
-        #for subterm in term:
+    return terms
+   # print("swap/fold terms:", terms)
 
 # Then on semantic node inference, once we detect a canonical signature pattern like: [[thread], [block,block]]
 # we map semantically to GlobalThreadID()
@@ -296,26 +295,26 @@ def swap(terms):
     }
 
     # v2 (inner sort)
+    # error: For some reason after swaping inner terms, literal stayed in front of block!!!
+    # [Cuda('threadIdx.x'), 'thread'), (Literal('1'), 'literal'), (Cuda('blockDim.x'), 'block')] -> this is one term
+
     for t in range(len(terms)): # terms[t] == term
-        #print("terms[t]:", terms[t], len(terms[t]))
-        for i in range(len(terms[t])):
-            #print("terms[t][i]:", terms[t][i]) # here prints 'literal' twice because we're sorting inside the j loop
+        print("terms[t]:", terms[t], len(terms[t]))
+        for i in range(len(terms[t])-1): # loop through factors of one term
+            #print("terms[t][i]:", terms[t][i], i)
             for j in range(1, len(terms[t])):
                 if isinstance(terms[t], list) and len(terms[t]) > 1:
                     if order.get(terms[t][i][1]) > order.get(terms[t][j][1]):
                         tmp = terms[t][i]
                         terms[t][i] = terms[t][j]
                         terms[t][j] = tmp
-        # fold here?
-        for f in terms[t]:
-            if isinstance(f[0], Literal):
-                #print("before fold terms[t]:", terms[t])
-                #print("not folding yet")
-                # this fold() call will only work for * first, because we're only sending inner terms
-                terms[t] = fold(terms[t]) # need to figure it out how to pass the 'op' to 'fold()'
-                print("returned fold: ", terms[t])
-        print("terms:", terms)
-        # ... here fold will only work with '*' expr, because each 't' term is a mul expr
+        # fold
+        for i in terms[t]:
+            if isinstance(i[0], Literal):
+                terms[t] = fold(terms[t], op="*") # need to figure it out how to pass the 'op' to 'fold()'
+                print("returned fold: ", terms[t]) # debug
+                break # added this break to fix terms[t] problem. Not sure if this is right, but it works
+        print("sorted:", terms[t]) # debug
     print("inner sorted terms:", terms)
 
     # (outer sort)
@@ -330,47 +329,41 @@ def swap(terms):
 
     return terms
 
-# need to add something that knows the op. Ex: if inside the same [], then is '*'
-# also, we need to accumulate if there's more than one Literal inside the terms list
-# maybe do recursively?
-# [[(CudaVar('threadIdx.x'), 'thread')], 
-#   (Literal('1'), 'literal'), 
-#   (Literal('2'), 'literal'), 
-def fold(terms, op="*"):
+def fold(terms, op="*"): # problem with op. if we want to fold the entire expression including with '+' ops, we need to fold the entire expression
     print("FOLD:\n", terms)
-    folded = terms.copy() # .deepcopy()
-    acc = 1
-    if isinstance(terms, list):
-        for sub in range(len(terms)):
-            print("terms[sub]:", terms[sub]) # debug
-            
-            if isinstance(terms[sub][0], Literal):
-                if terms[sub][0].value == "1" and op == "*":
-                    folded.remove(folded[sub])
-                #elif terms[sub][0].value == "0" and op == "+":
-                #    terms.remove(terms[sub])
-                #elif terms[sub][0].value == "0" and op == "*":
-                #    terms.remove(terms) # not sure about this one
-                #    break
-                else:
-                    print("accumulate constants")
-                    #node = terms[sub]
-                    #node[0].value = acc
-                    #print(node)
-                    #folded.append(node)
-                    print("op:", op)
-                    acc = acc * int(terms[sub][0].value) if op == "*" else 0
-                    print("acc:", acc)
-                    folded.remove(folded[sub])
-                    print("folded:", folded)
-                    
-            else:
-                continue
+    assert isinstance(terms, list), "terms to be folded are not a list!"
+    folded = terms.copy() #.deepcopy()
+    remove = []
+    node = None
+    acc = 0 if op == "+" else 1
 
-            if acc != 1:
-                print("differente")
-    #else:
-    #    op = "+"
+    for sub in range(len(terms)):
+        # constant folding cases
+        if isinstance(terms[sub][0], Literal):
+            if terms[sub][0].value == "1" and op == "*":
+                folded.remove(folded[sub])
+            elif terms[sub][0].value == "0" and op == "*":
+            #    folded.remove(folded[sub]) # not sure about this one
+                pass
+            else:
+                #print("accumulate constants")
+                acc = acc * int(terms[sub][0].value) if op == "*" else acc + int(terms[sub][0].value)
+                # create new node
+                node = terms[sub]
+                # append to list of nodes to remove
+                remove.append(terms[sub])
+                
+        else:
+            continue
+
+    # create a new node accumulating consts
+    if remove != []:
+        node[0].value = acc
+        # the problem "index out of range" is because of Literal(0)
+        for i in remove:
+            if i in folded:
+                folded.remove(i)
+        folded.append(node)
 
     return folded
 
