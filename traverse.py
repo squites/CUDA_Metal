@@ -275,6 +275,7 @@ def addtag(terms):
 
 
 # refactor this eventually, to get to call flattened only once instead of twice
+# maybe remove this function to call swap directly from canonicalize
 def reorder(terms):
     print("REORDER:\n", terms)
     terms = swap(terms)
@@ -309,8 +310,10 @@ def swap(terms):
         for f in terms[t]:
             if isinstance(f[0], Literal):
                 #print("before fold terms[t]:", terms[t])
+                #print("not folding yet")
+                # this fold() call will only work for * first, because we're only sending inner terms
                 terms[t] = fold(terms[t]) # need to figure it out how to pass the 'op' to 'fold()'
-                #print("folded terms[t]:", terms[t])
+                print("returned fold: ", terms[t])
         print("terms:", terms)
         # ... here fold will only work with '*' expr, because each 't' term is a mul expr
     print("inner sorted terms:", terms)
@@ -327,26 +330,49 @@ def swap(terms):
 
     return terms
 
-# not working yet. figure it out!
+# need to add something that knows the op. Ex: if inside the same [], then is '*'
+# also, we need to accumulate if there's more than one Literal inside the terms list
+# maybe do recursively?
+# [[(CudaVar('threadIdx.x'), 'thread')], 
+#   (Literal('1'), 'literal'), 
+#   (Literal('2'), 'literal'), 
 def fold(terms, op="*"):
-    print("FOLD:\n", terms, op)
-    for sub in range(len(terms)):
-        print("terms[sub]:", terms[sub])
-        print(type(terms[sub][0]))
-        print(terms[sub][0].value) if isinstance(terms[sub][0], Literal) else ""
-        if isinstance(terms[sub][0], Literal):# and len(terms[sub][0]) > 0:
-            if terms[sub][0].value == "1" and op == "*":
-                terms.remove(terms[sub])
-            elif terms[sub][0].value == "0" and op == "+":
-                terms.remove(terms[sub])
-            elif terms[sub][0].value == "0" and op == "*":
-                terms.remove(terms) # not sure about this one
-                break
+    print("FOLD:\n", terms)
+    folded = terms.copy() # .deepcopy()
+    acc = 1
+    if isinstance(terms, list):
+        for sub in range(len(terms)):
+            print("terms[sub]:", terms[sub]) # debug
+            
+            if isinstance(terms[sub][0], Literal):
+                if terms[sub][0].value == "1" and op == "*":
+                    folded.remove(folded[sub])
+                #elif terms[sub][0].value == "0" and op == "+":
+                #    terms.remove(terms[sub])
+                #elif terms[sub][0].value == "0" and op == "*":
+                #    terms.remove(terms) # not sure about this one
+                #    break
+                else:
+                    print("accumulate constants")
+                    #node = terms[sub]
+                    #node[0].value = acc
+                    #print(node)
+                    #folded.append(node)
+                    print("op:", op)
+                    acc = acc * int(terms[sub][0].value) if op == "*" else 0
+                    print("acc:", acc)
+                    folded.remove(folded[sub])
+                    print("folded:", folded)
+                    
             else:
-                # accumulate constants to be one (not implemented yet!)
-                #acc += terms[sub].value
-                pass
-    return terms
+                continue
+
+            if acc != 1:
+                print("differente")
+    #else:
+    #    op = "+"
+
+    return folded
 
 
 # make this canonicalization as a class eventually
