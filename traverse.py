@@ -7,7 +7,7 @@ class CUDAVisitor(object):
         #self.buffer_idx = -1
         self.kernel_params = []
         self.body = []
-        self.cudavarslist = []
+        self.cudavarslist = [] # remove
 
     # passing the node parent
     def visit(self, node, parent=None, idx=0):
@@ -68,38 +68,19 @@ class CUDAVisitor(object):
     # obs: for tid and gid, we are generating the right Parameter() node, but they are still inside the 
     # body of the kernel. We need to have a way to move them into Parameters when they're thread index 
     # calculations.
-    # obs2: if i set a self.cudavarslist = [], this will store every Declaration node cuda vars. If i use it inside the 
-    # function only the local list, I'll have only the current node cuda vars. Which one is better?
     def visit_Declaration(self, node, parent=None):
         semantic_analysis(node)
-        cudavars = []
-        #cudavars = ""
         memory = node.memory if node.memory else None
         type = node.type
         name = self.visit(node.name) if isnode(node.name) else node.name
         if node.children():
             value = [] # = Expression(Binary, Literal, Variable, Array)
             for child in node.children():
-                #cudavars = check_semantic_v2(child, cudavars, parent=node)
-                #self.cudavarslist.append(cudavars) if cudavars != [] else None
-
-                # probably the stupidest way to make this, but that'll do for now
-                #for var in range(len(self.cudavarslist)):                                 # [var[0(0,)]]
-                #    node = None
-
-                #    if not check_nodes(node, self.kernel_params):
-                #        x = self.cudavarslist[var][0][0]
-                
                 # call function to map the vars
                 node = METAL_Parameter(memory_type=None, type="uint3", name="blockidx", buffer=None, init=None)
-                #if not check_nodes(node, self.kernel_params):
-                #    self.kernel_params.append(node)
-                #print("self.kernel_params: ", self.kernel_params)
-                #return None # this was generating the error on for codegen, where it was concatenating None
-                #return METAL_Parameter(memory_type=None, type="uint", name=name, buffer=None, init=param)
                 child_node = self.visit(child, parent=node) # this is equal as: "return METAL_Declaration(type, name, value)"
                 value.append(child_node)
-            #print("self.kernel_params: ",  self.kernel_params)
+
             if value != None:
                 return METAL_Declaration(metal_map(memory), type, name, value)
             else:
@@ -195,12 +176,9 @@ def get_param_idx(kernel_params, node):
             return int(p)
     return 0
 
-# need to add after a tree normalization (future optimization)
-# so if we have a node like Add(a, Add(b, c)) transform into Add(a, b, c)
 
 def semantic_analysis(node): # this calls pattern_matching, where it'll classify the child node based on the semantic meaning
     """ checks the structure of the sub-tree of this node, and based on that structure generate a semantic node """
-    # this is the one that matters! figure it out a way to analyse the node subtree and check what computation is doing.
     # if its something as global thread id, create a new node for it.
     #
     # How the pattern matching must work:
@@ -210,39 +188,41 @@ def semantic_analysis(node): # this calls pattern_matching, where it'll classify
     print("-------------------------------------------------------------------------------------")
     print("SEMANTIC ANALYSIS:\n", node)
     for child in node.children():
+        # canonicalize()? 
         pattern_matching(child)
         # ...
 
 def pattern_matching(node): # will recursively go down until there's no more Binary node, and return a pattern for it
     print("PATTERN MATCHING:\n", node)
-    new_node = canonicalize(node)
+    canonical_expr = canonicalize(node)
     # try to normalize and find get the pattern matching here
+    # rebuild(node, terms)
+    # compare(terms)
+    # ....
 
 def canonicalize(node): # here will rewrite the node changing the order of the factors, so they can always be the same
     print("CANONICALIZE:\n", node)
     ops = ["+", "*"]
     if isinstance(node, Binary) and node.op in ops:
         #terms = reorder(flatten(node, node.op))
-        terms = flatten(node, node.op)  # flatten "+" terms
+        terms = flatten(node, node.op)  # flatten by "+" into terms
         for t in range(len(terms)):
             if isinstance(terms[t], Binary):    
-                terms[t] = flatten(terms[t], terms[t].op) # flatten "*" factors
+                terms[t] = flatten(terms[t], terms[t].op) # flatten by "*" into factors
 
         print("flattened terms:", terms)
-        # add tags for each term: e.g. (CudaVar(base="threadIdx", dim="x"), "thread")
-        tag_terms = addtag(terms)
-        print("tag terms:", tag_terms)
-        reorder_terms = reorder(tag_terms)
+        tagged = addtag(terms)
+        print("tagged:", tagged)
+        reorder_terms = reorder(tagged)
         print("reorder terms:", reorder_terms)
-        #rebuild(node, terms)#rebuild_node(node, ordered_terms)
-        #compare(terms)
-        # reconstruct node based on the ordered terms
-    else: # tirar else
-        return node
+    
+        return reorder_terms
+
+    #else: # tirar else
+    #    return node
 
 def flatten(node, op):
     """ separates the terms individually (in nodes). At first we separate by `+`, but then all commutative ops """
-    #print(f"FLATTEN OP({op}):\n{node}") # use this to see which node is being flatted
     # if i take off the op == node.op, we flatten everything, but we don't separate the factors vs terms, so we have:
     # [1, tidx, bidx, bdim] instead of [[1, tidx], [bidx, bdim]]
     if isinstance(node, Binary) and op == node.op:
@@ -252,9 +232,8 @@ def flatten(node, op):
     else:
         return [node]
 
-# [[Cuda("threadIdx")], [Cuda("blockIdx"), Cuda("blockDim")]]
-# this code is disgusting! But was the initial way that worked, refactor later
 def addtag(terms):
+    """ add tags for each term/factor which is a flag for reordering later """
     print("ADD TAG:\n", terms)
     for term in range(len(terms)):
         if not isinstance(terms[term], list):
@@ -272,21 +251,12 @@ def addtag(terms):
 
     return terms
 
-
-# refactor this eventually, to get to call flattened only once instead of twice
-# maybe remove this function to call swap directly from canonicalize
-def reorder(terms):
-    print("REORDER:\n", terms)
-    terms = swap(terms)
-    return terms
-   # print("swap/fold terms:", terms)
-
 # Then on semantic node inference, once we detect a canonical signature pattern like: [[thread], [block,block]]
 # we map semantically to GlobalThreadID()
-
-def swap(terms):
-    """ swap the order of inner and outer terms based on the priority order (low->high) """
-    print("SWAP:\n", terms)
+def reorder(terms): # used to be called `swap()`
+    """ reorder inner and outer terms based on the priority order (low->high) """
+    print("REORDER:\n", terms)
+    # obs: don't know if I should be reordering based only the tag or also the cuda var
     order = {
         "thread": 0,
         "block": 1,
@@ -295,13 +265,9 @@ def swap(terms):
     }
 
     # v2 (inner sort)
-    # error: For some reason after swaping inner terms, literal stayed in front of block!!!
-    # [Cuda('threadIdx.x'), 'thread'), (Literal('1'), 'literal'), (Cuda('blockDim.x'), 'block')] -> this is one term
-
     for t in range(len(terms)): # terms[t] == term
         print("terms[t]:", terms[t], len(terms[t]))
         for i in range(len(terms[t])-1): # loop through factors of one term
-            #print("terms[t][i]:", terms[t][i], i)
             for j in range(1, len(terms[t])):
                 if isinstance(terms[t], list) and len(terms[t]) > 1:
                     if order.get(terms[t][i][1]) > order.get(terms[t][j][1]):
@@ -326,7 +292,6 @@ def swap(terms):
                 terms[t1] = terms[t2]
                 terms[t2] = tmp
     print("outer sorted terms:", terms)
-
     return terms
 
 def fold(terms, op="*"): # problem with op. if we want to fold the entire expression including with '+' ops, we need to fold the entire expression
@@ -346,7 +311,7 @@ def fold(terms, op="*"): # problem with op. if we want to fold the entire expres
             #    folded.remove(folded[sub]) # not sure about this one
                 pass
             else:
-                #print("accumulate constants")
+                print("** accumulate const")
                 acc = acc * int(terms[sub][0].value) if op == "*" else acc + int(terms[sub][0].value)
                 # create new node
                 node = terms[sub]
@@ -366,6 +331,15 @@ def fold(terms, op="*"): # problem with op. if we want to fold the entire expres
         folded.append(node)
 
     return folded
+
+
+# TODO:
+# - create function to rebuild the node based on what we have on that list.
+#   this is the part where we build the semantic node i believe.
+# if there's another thing to do before that we'll add here. 
+# - i need to improve `fold` function as well 
+# - need to add after a tree normalization (future optimization)
+#   so if we have a node like Add(a, Add(b, c)) transform into Add(a, b, c)
 
 
 # make this canonicalization as a class eventually
