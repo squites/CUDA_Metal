@@ -94,6 +94,7 @@ class Binary(Expression):
 @dataclass
 class Literal(Expression): # constant
     value: Union[int, float]
+    tag: str = None
     # parent: Node
 
 @dataclass
@@ -111,7 +112,7 @@ class Array(Expression):
 class CudaVar:
     base: str # blockIdx, threadIdx, ...
     dim: str # x, y, z
-    # maybe add a 'tag' attribute here instead of in traverse. So if base=blockIdx, tag=block
+    tag: str = None # will populate this tag attr later on
 
 class SemanticNode:
     pass

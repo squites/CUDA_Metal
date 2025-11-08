@@ -195,8 +195,9 @@ def semantic_analysis(node): # this calls pattern_matching, where it'll classify
 def pattern_matching(node): # will recursively go down until there's no more Binary node, and return a pattern for it
     print("PATTERN MATCHING:\n", node)
     canonical_expr = canonicalize(node)
-    print("Canonical expr:", canonical_expr)
-    recog = recognition(canonical_expr)
+    print(" ** Canonical expr:", canonical_expr)
+    #recog = recognition(canonical_expr)
+    recog = recognition_attr(canonical_expr)
     #print("Recognition:", recog)
     # try to normalize and find get the pattern matching here
     # build_node(node, canonical_expr)
@@ -213,16 +214,17 @@ def canonicalize(node): # here will rewrite the node changing the order of the f
             if isinstance(terms[t], Binary):    
                 terms[t] = flatten(terms[t], terms[t].op) # flatten by "*" into factors
 
-        print("flattened terms:", terms)
-        tagged = addtag(terms)
-        print("tagged:", tagged)
-        reorder_terms = reorder(tagged)
-        print("reorder terms:", reorder_terms)
+        print(" ** flattened:", terms)
+        #tagged = addtag(terms)
+        tagged = addtag_attr(terms) # trying this version using .tag node attribute
+        print(" ** tagged:", tagged)
+        #reorder_terms = reorder(tagged)
+        reorder_terms = reorder_attr(tagged) # trying this version using .tag node attribute
+        print(" ** reordered:", reorder_terms)
     
         return reorder_terms
 
-    return node
-
+    #return node # this is for nodes that aren't Declaration(Bin) # not working yet
 
 def flatten(node, op):
     """ separates the terms individually (in nodes). At first we separate by `+`, but then all commutative ops """
@@ -235,8 +237,27 @@ def flatten(node, op):
     else:
         return [node]
 
+# addtag but directly on the node attr instead of creating a tuple. adding one more dim of complexity is bad
+def addtag_attr(terms):
+    print("ADD TAG EXPR:\n", terms)
+    for term in range(len(terms)):
+        if not isinstance(terms[term], list):
+            terms[term] = [terms[term]]
+        for sub in range(len(terms[term])):
+            if isinstance(terms[term][sub], CudaVar):
+                if "thread" in terms[term][sub].base: 
+                    terms[term][sub].tag = "thread"
+                elif "block" in terms[term][sub].base: 
+                    terms[term][sub].tag = "block"
+                else: 
+                    terms[term][sub].tag = "grid"
+            elif isinstance(terms[term][sub], Literal):
+                terms[term][sub].tag = "literal"
+    return terms
+
+"""
 def addtag(terms):
-    """ add tags for each term/factor which is a flag for reordering later """
+    # add tags for each term/factor which is a flag for reordering later 
     print("ADD TAG:\n", terms)
     for term in range(len(terms)):
         if not isinstance(terms[term], list):
@@ -253,11 +274,53 @@ def addtag(terms):
                 terms[term][sub] = (terms[term][sub], "literal")
 
     return terms
+"""
 
+def reorder_attr(terms):
+    print("REORDER ATTR:\n", terms)
+    order = {
+        "thread":  0,
+        "block":   1,
+        "grid":    2,
+        "literal": 3,
+    }
+
+    # (inner sort)
+    for t in range(len(terms)): # terms[t] == term
+        #print("terms[t]:", terms[t], len(terms[t]))
+        for i in range(len(terms[t])-1): # loop through factors of one term
+            for j in range(1, len(terms[t])):
+                if isinstance(terms[t], list) and len(terms[t]) > 1:
+                    if order.get(terms[t][i].tag) > order.get(terms[t][j].tag):
+                        tmp = terms[t][i]
+                        terms[t][i] = terms[t][j]
+                        terms[t][j] = tmp
+                        
+        # fold
+        for i in terms[t]:
+            if isinstance(i, Literal):
+                terms[t] = fold_attr(terms[t], op="*") # need to figure it out how to pass the 'op' to 'fold()'
+                print("returned fold: ", terms[t]) # debug
+                break # added this break to fix terms[t] problem. Not sure if this is right, but it works
+        #print("sorted:", terms[t]) # debug
+    print("inner sorted terms:", terms)
+
+    # (outer sort)
+    for t1 in range(len(terms)-1): # t1 outer list element
+        for t2 in range(1, len(terms)): # t2 is alos outer list element, but one element ahead
+            # since its already inner sorted, the first tag will always be the priority tag of that term
+            if order.get(terms[t1][0].tag) > order.get(terms[t2][0].tag):
+                tmp = terms[t1]
+                terms[t1] = terms[t2]
+                terms[t2] = tmp
+    print("outer sorted terms:", terms)
+    return terms
+
+"""
 # Then on semantic node inference, once we detect a canonical signature pattern like: [[thread], [block,block]]
 # we map semantically to GlobalThreadID()
 def reorder(terms): # used to be called `swap()`
-    """ reorder inner and outer terms based on the priority order (low->high) """
+    # reorder inner and outer terms based on the priority order (low->high)
     print("REORDER:\n", terms)
     # obs: don't know if I should be reordering based only the tag or also the cuda var
     order = {
@@ -296,7 +359,42 @@ def reorder(terms): # used to be called `swap()`
                 terms[t2] = tmp
     print("outer sorted terms:", terms)
     return terms
+"""
 
+def fold_attr(terms, op="*"):
+    print("FOLD_ATTR:\n", terms)
+    assert isinstance(terms, list), "terms to be folded are not list!"
+    folded = terms.copy()
+    remove = []
+    node = None
+    acc = 0 if op == "+" else 1
+
+    for sub in range(len(terms)):
+        if isinstance(terms[sub], Literal):
+            if terms[sub].value == "1" and op == "*":
+                folded.remove(folded[sub])
+            elif terms[sub].value == "0" and op == "*":
+                pass
+            else:
+                print(" ** accumulate **")
+                acc = acc * int(terms[sub].value) if op == "*" else acc + int(terms[sub].value)
+                node = terms[sub]
+                remove.append(terms[sub])
+        else:
+            continue
+    
+    if remove != []:
+        #print("node:", node)
+        node.value = acc
+        # the problem "index out of range" is because of Literal(0)
+        for i in remove:
+            if i in folded:
+                folded.remove(i)
+        folded.append(node)
+
+    return folded
+
+"""
 def fold(terms, op="*"): # problem with op. if we want to fold the entire expression including with '+' ops, we need to fold the entire expression
     print("FOLD:\n", terms)
     assert isinstance(terms, list), "terms to be folded are not a list!"
@@ -334,26 +432,48 @@ def fold(terms, op="*"): # problem with op. if we want to fold the entire expres
         folded.append(node)
 
     return folded
+"""
 
+def recognition_attr(canonical_expr):
+    node = None
+    if canonical_expr is not None:
+        tags = get_tags_attr(canonical_expr) if isinstance(canonical_expr, list) else canonical_expr.base
+        print("tags:", tags)
+"""
 def recognition(canonical_expr):
     print("RECOGNITION\n", canonical_expr) # type() = list
     node = None
     if canonical_expr is not None:
-        tags = get_tags(canonical_expr)# if isinstance(canonical_expr, list) else canonical_expr.base
+        tags = get_tags(canonical_expr) if isinstance(canonical_expr, list) else canonical_expr.base
         dim = canonical_expr[0][0][0].dim if isinstance(canonical_expr, list) else canonical_expr.dim
 
         if len(tags) == 3 and tags == ["thread", "block", "block"]:
-            #assert("blockIdx" and "blockDim") canonical_expr # this is to assert that we're using both blockIdx and blockDim, since their tags are the same
+            #assert("blockIdx" and "blockDim") in canonical_expr # this is to assert that we're using both blockIdx and blockDim, since their tags are the same
+            for i in canonical_expr:
+                print(i)
+
             node = GlobalThreadIdx(dim=dim)
         elif len(tags) == 1 and tags == ["thread"]:
             node = ThreadIdx(dim=dim) if canonical_expr[0][0][0].base == "threadIdx" else None
         #elif len(tags) == 1 and tags == ["block"]:
         #    node = BlockIdx(dim=dim) if canonical_expr[0][0][0].base == "blockIdx" else BlockDim(dim=dim)
 
-
     print("node:", node)
     return node
-    
+"""
+
+# this is wrong because is not creating sublist as it should. Instead of returning [thread, [block, block]]
+#                                                                     is returning [thread, block, block]
+def get_tags_attr(list_expr):
+    tags = []
+    if list_expr is not None:
+        for i in list_expr:
+            for j in i:
+                tags.append(j.tag)
+            #tags.append(i.tag)
+    return tags
+
+"""
 # helper
 def get_tags(list_expr):
     tags = []
@@ -364,7 +484,7 @@ def get_tags(list_expr):
             elif isinstance(i, list):
                 tags.extend(get_tags(i))
     return tags
-
+"""
 
 def build_node(src_node, canonical_expr):
     print("BUILD NODE:\n", canonical_expr)
@@ -372,6 +492,7 @@ def build_node(src_node, canonical_expr):
 
 
 # TODO:
+# - obs: add tag attribute to cuda var later, instead of using tuples. It'll be easier. Need to rewrite that!
 # - rebuild the node based on the reordered list. (build the semantic node)
 # optimizations:
 # - improve `fold` function
