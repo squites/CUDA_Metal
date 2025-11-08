@@ -1,5 +1,5 @@
 from ast_builder import METAL_Kernel, METAL_Parameter, METAL_Body, METAL_Var, METAL_Declaration, METAL_Assignment, METAL_IfStatement, METAL_ForStatement, METAL_Binary, METAL_Literal, METAL_Variable, METAL_Array, METAL_Program
-from ast_builder import Parameter, Declaration, Assignment, Binary, Literal, CudaVar, Variable, Array, StartBlockIdx
+from ast_builder import Parameter, Declaration, Assignment, Binary, Literal, CudaVar, Variable, Array, ThreadIdx, BlockIdx, BlockDim, GlobalThreadIdx
 
 class CUDAVisitor(object):
     """ Traverse the ast nodes """
@@ -195,8 +195,11 @@ def semantic_analysis(node): # this calls pattern_matching, where it'll classify
 def pattern_matching(node): # will recursively go down until there's no more Binary node, and return a pattern for it
     print("PATTERN MATCHING:\n", node)
     canonical_expr = canonicalize(node)
+    print("Canonical expr:", canonical_expr)
+    recog = recognition(canonical_expr)
+    #print("Recognition:", recog)
     # try to normalize and find get the pattern matching here
-    # rebuild(node, terms)
+    # build_node(node, canonical_expr)
     # compare(terms)
     # ....
 
@@ -218,8 +221,8 @@ def canonicalize(node): # here will rewrite the node changing the order of the f
     
         return reorder_terms
 
-    #else: # tirar else
-    #    return node
+    return node
+
 
 def flatten(node, op):
     """ separates the terms individually (in nodes). At first we separate by `+`, but then all commutative ops """
@@ -297,7 +300,7 @@ def reorder(terms): # used to be called `swap()`
 def fold(terms, op="*"): # problem with op. if we want to fold the entire expression including with '+' ops, we need to fold the entire expression
     print("FOLD:\n", terms)
     assert isinstance(terms, list), "terms to be folded are not a list!"
-    folded = terms.copy() #.deepcopy()
+    folded = terms.copy()
     remove = []
     node = None
     acc = 0 if op == "+" else 1
@@ -332,15 +335,50 @@ def fold(terms, op="*"): # problem with op. if we want to fold the entire expres
 
     return folded
 
+def recognition(canonical_expr):
+    print("RECOGNITION\n", canonical_expr) # type() = list
+    node = None
+    if canonical_expr is not None:
+        tags = get_tags(canonical_expr)# if isinstance(canonical_expr, list) else canonical_expr.base
+        dim = canonical_expr[0][0][0].dim if isinstance(canonical_expr, list) else canonical_expr.dim
+
+        if len(tags) == 3 and tags == ["thread", "block", "block"]:
+            #assert("blockIdx" and "blockDim") canonical_expr # this is to assert that we're using both blockIdx and blockDim, since their tags are the same
+            node = GlobalThreadIdx(dim=dim)
+        elif len(tags) == 1 and tags == ["thread"]:
+            node = ThreadIdx(dim=dim) if canonical_expr[0][0][0].base == "threadIdx" else None
+        #elif len(tags) == 1 and tags == ["block"]:
+        #    node = BlockIdx(dim=dim) if canonical_expr[0][0][0].base == "blockIdx" else BlockDim(dim=dim)
+
+
+    print("node:", node)
+    return node
+    
+# helper
+def get_tags(list_expr):
+    tags = []
+    if list_expr is not None:
+        for i in list_expr:
+            if isinstance(i, tuple):
+                tags.append(i[1])
+            elif isinstance(i, list):
+                tags.extend(get_tags(i))
+    return tags
+
+
+def build_node(src_node, canonical_expr):
+    print("BUILD NODE:\n", canonical_expr)
+
+
 
 # TODO:
-# - create function to rebuild the node based on what we have on that list.
-#   this is the part where we build the semantic node i believe.
-# if there's another thing to do before that we'll add here. 
-# - i need to improve `fold` function as well 
-# - need to add after a tree normalization (future optimization)
-#   so if we have a node like Add(a, Add(b, c)) transform into Add(a, b, c)
-
+# - rebuild the node based on the reordered list. (build the semantic node)
+# optimizations:
+# - improve `fold` function
+# - algebraic simplification
+# - fuse small kernels (on forward pass there will be many kernels) obs: even if its not fused on cuda, if we can fuse on metal, we do that! 
+# - add tree normalization (optimization). ex: Add(a, Add(b, c)) transform into Add(a, b, c)
+# - transform into a new class, check below
 
 # make this canonicalization as a class eventually
 #class ExprCanonicalizer:

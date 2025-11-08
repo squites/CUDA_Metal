@@ -111,18 +111,26 @@ class Array(Expression):
 class CudaVar:
     base: str # blockIdx, threadIdx, ...
     dim: str # x, y, z
-    # parent: Node
+    # maybe add a 'tag' attribute here instead of in traverse. So if base=blockIdx, tag=block
 
 class SemanticNode:
     pass
 
 @dataclass
-class ThreadId(SemanticNode):
+class ThreadIdx(SemanticNode):
     dim: str
 
 @dataclass
-class StartBlockIdx(SemanticNode):
-    dim: str = None
+class BlockIdx(SemanticNode):
+    dim: str
+
+@dataclass
+class BlockDim(SemanticNode):
+    dim: str
+
+@dataclass
+class GlobalThreadIdx(SemanticNode):
+    dim: str # char
 
 # Transformer class
 class CUDATransformer(Transformer):
