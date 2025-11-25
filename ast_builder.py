@@ -383,3 +383,9 @@ class METAL_Var(METAL_Ast):
 class METAL_GlobalThreadId(METAL_Ast):
     def __init__(self):
         raise NotImplementedError
+
+
+"""
+class CUDAAtomic:
+    
+"""

@@ -237,7 +237,7 @@ def flatten(node, op):
 # addtag but directly on the node attr instead of creating a tuple. adding one more dim of complexity is bad
 def addtag(terms):
     """ adds a tag on each node to represent what level that node works with (e.g. thread, block, grid, ...) """
-    #print("ADD TAG EXPR:\n", terms)
+    print("ADD TAG EXPR:\n", terms)
     for term in range(len(terms)):
         if not isinstance(terms[term], list):
             terms[term] = [terms[term]]
@@ -251,7 +251,7 @@ def addtag(terms):
                     terms[term][sub].tag = "grid"
             elif isinstance(terms[term][sub], Literal):
                 terms[term][sub].tag = "literal"
-    print("ADD TAG EXPR:\n", terms)
+    #print("ADD TAG EXPR:\n", terms)
     return terms
 
 
@@ -328,10 +328,30 @@ def fold(terms, op="*"):
 
 
 def recognition(canonical_expr):
+    print("RECOGNITION: \n", canonical_expr)
     node = None
     if canonical_expr is not None:
         tags = get_tags(canonical_expr) if isinstance(canonical_expr, list) else canonical_expr.base
         print("tags:", tags)
+        for t in canonical_expr:
+            print(t)
+            print(len(t))
+            for x in t:
+                print(x)
+                if len(t) == 1 and isinstance(x, CudaVar):
+                    print("oi")
+                    if x.base == "threadIdx": node = ThreadIdx(dim=x.dim)
+                    elif x.base == "blockIdx": node = BlockIdx(dim=x.dim)
+                    elif x.base == "blockDim": node = BlockDim(dim=x.dim)
+                    x = node
+                    t = [x]
+            
+                                        
+                    print("node:", node)
+                    print("t:", t)
+        print(canonical_expr)
+            
+            
 
 
 def get_tags(list_expr):
@@ -352,8 +372,14 @@ def build_node(src_node, canonical_expr):
 
 
 # TODO:
-# - FIX get_tags_attr function - FIXED
-# - rebuild the node based on the reordered list. (build the semantic node)
+# right approach:
+# 1- create atomic semantic nodes based on the list canonicalized. So ThreadIdx(dim=x), BlockIdx(dim=x), ...
+#    replace the nodes on that list for these atomic ones
+# 2- pattern/rewrite (composition): rule engine to match the atomic nodes configuration into a semantic node:
+#    so like: [ThreadIdx(dim=x), [BlockIdx(dim=x), BlockDim(dim=x)]] into -> GlobalThreadIdx(dim=x)
+# 3- These composite semantic nodes will be part of the new METAL ast
+# 4- lower the metal ast and codegen
+#
 # optimizations:
 # - improve `fold` function
 # - algebraic simplification
