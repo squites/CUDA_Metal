@@ -199,7 +199,9 @@ def pattern_matching(node): # will recursively go down until there's no more Bin
     print("PATTERN MATCHING:\n", node)
     canonical_expr = canonicalize(node)
     print(" ** Canonical expr:", canonical_expr)
-    recog = recognition(canonical_expr)
+    #recog = recognition(canonical_expr)
+    recognition(canonical_expr)
+    print("canonical expr:", canonical_expr)
     #print("Recognition:", recog)
     # try to normalize and find get the pattern matching here
     # build_node(node, canonical_expr)
@@ -326,33 +328,22 @@ def fold(terms, op="*"):
         folded.append(node)
     return folded
 
-
+# this not working! This list approach is probably wrong.
 def recognition(canonical_expr):
     print("RECOGNITION: \n", canonical_expr)
     node = None
     if canonical_expr is not None:
-        tags = get_tags(canonical_expr) if isinstance(canonical_expr, list) else canonical_expr.base
-        print("tags:", tags)
         for t in canonical_expr:
-            print(t)
-            print(len(t))
-            for x in t:
-                print(x)
-                if len(t) == 1 and isinstance(x, CudaVar):
-                    print("oi")
-                    if x.base == "threadIdx": node = ThreadIdx(dim=x.dim)
-                    elif x.base == "blockIdx": node = BlockIdx(dim=x.dim)
-                    elif x.base == "blockDim": node = BlockDim(dim=x.dim)
-                    x = node
-                    t = [x]
-            
-                                        
-                    print("node:", node)
-                    print("t:", t)
+            for x in range(len(t)):
+                if isinstance(t[x], CudaVar):
+                    if t[x].base == "threadIdx": node = ThreadIdx(dim=t[x].dim)
+                    elif t[x].base == "blockIdx": node = BlockIdx(dim=t[x].dim)
+                    elif t[x].base == "blockDim": node = BlockDim(dim=t[x].dim)
+                    t[x] = node
+                
+            # need to change in canonical_expr        
         print(canonical_expr)
             
-            
-
 
 def get_tags(list_expr):
     """ returns a list of only the tags from the expression """
@@ -374,11 +365,14 @@ def build_node(src_node, canonical_expr):
 # TODO:
 # right approach:
 # 1- create atomic semantic nodes based on the list canonicalized. So ThreadIdx(dim=x), BlockIdx(dim=x), ...
-#    replace the nodes on that list for these atomic ones
+#    replace the nodes on that list for these atomic ones. Even if the sublist means something, only replace to atomic nodes first.
 # 2- pattern/rewrite (composition): rule engine to match the atomic nodes configuration into a semantic node:
 #    so like: [ThreadIdx(dim=x), [BlockIdx(dim=x), BlockDim(dim=x)]] into -> GlobalThreadIdx(dim=x)
 # 3- These composite semantic nodes will be part of the new METAL ast
 # 4- lower the metal ast and codegen
+# 
+# Question: 1) should I replace the list [[a,b], [c,d]] where subterms means the terms are being multiplied, and outerterms
+# means they're being added, and change that to nodes like Add() and Mul()?
 #
 # optimizations:
 # - improve `fold` function
@@ -400,9 +394,3 @@ def build_node(src_node, canonical_expr):
 #        right = self.canonicalize(node.right) if isinstance(node.right, Binary) else node
 #        print("left: ", left)
 #        print("right: ", right)
-
-
-# !!!!!!!!!! IMPORTANT !!!!!!!!!!
-# IMPORTANT: IMPLEMENT SEMANTIC ANALYSES. Detect what nodes are calculating. So for example, if I have a Binary node that computes
-# blockIdx.x * blockDim.x + threadIdx.x; mark that node that it calculates linear thread ID in the block. We can do this
-# by adding a flag to the node, or making new nodes
