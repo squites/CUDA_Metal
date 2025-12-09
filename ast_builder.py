@@ -114,8 +114,20 @@ class CudaVar:
     dim: str # x, y, z
     tag: str = None # will populate this tag attr later on
 
+
+
 class SemanticNode:
     pass
+
+@dataclass
+class Mul(SemanticNode):
+    op1: Union[CudaVar, Literal, Variable]
+    op2: Union[CudaVar, Literal, Variable]
+
+@dataclass
+class Add(SemanticNode):
+    op1: Union[CudaVar, Literal, Variable]
+    op2: Union[CudaVar, Literal, Variable]
 
 @dataclass
 class ThreadIdx(SemanticNode):
@@ -132,6 +144,9 @@ class BlockDim(SemanticNode):
 @dataclass
 class GlobalThreadIdx(SemanticNode):
     dim: str # char
+
+
+
 
 # Transformer class
 class CUDATransformer(Transformer):
@@ -387,5 +402,5 @@ class METAL_GlobalThreadId(METAL_Ast):
 
 """
 class CUDAAtomic:
-    
+
 """

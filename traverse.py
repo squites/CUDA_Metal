@@ -1,5 +1,5 @@
 from ast_builder import METAL_Kernel, METAL_Parameter, METAL_Body, METAL_Var, METAL_Declaration, METAL_Assignment, METAL_IfStatement, METAL_ForStatement, METAL_Binary, METAL_Literal, METAL_Variable, METAL_Array, METAL_Program
-from ast_builder import Parameter, Declaration, Assignment, Binary, Literal, CudaVar, Variable, Array, ThreadIdx, BlockIdx, BlockDim, GlobalThreadIdx
+from ast_builder import Parameter, Declaration, Assignment, Binary, Literal, CudaVar, Variable, Array, ThreadIdx, BlockIdx, BlockDim, GlobalThreadIdx, Mul, Add
 
 class CUDAVisitor(object):
     """ Traverse the ast nodes """
@@ -199,7 +199,9 @@ def pattern_matching(node): # will recursively go down until there's no more Bin
     print("PATTERN MATCHING:\n", node)
     canonical_expr = canonicalize(node)
     print(" ** Canonical expr:", canonical_expr)
-    #recog = recognition(canonical_expr)
+    # IR construct
+    IR_construct(canonical_expr)
+    # IR rewrite
     recognition(canonical_expr)
     print("canonical expr:", canonical_expr)
     #print("Recognition:", recog)
@@ -225,8 +227,10 @@ def canonicalize(node): # here will rewrite the node changing the order of the f
         return reordered
     #return node # this is for nodes that aren't Declaration(Bin) # not working yet
 
-
+# keep flatten the way it is. The rewrite will be after, changing [] by Mul() and Add() IR nodes. This process is called
+# IR construction
 def flatten(node, op):
+    print(f"FLATTEN: {node} {op}")
     """ separates the terms individually (in nodes). At first we separate by `+`, but then all commutative ops """
     if isinstance(node, Binary) and op == node.op:
         left = flatten(node.left, op=node.op)
@@ -234,7 +238,6 @@ def flatten(node, op):
         return left+right
     else:
         return [node]
-
 
 # addtag but directly on the node attr instead of creating a tuple. adding one more dim of complexity is bad
 def addtag(terms):
@@ -328,7 +331,17 @@ def fold(terms, op="*"):
         folded.append(node)
     return folded
 
+
+# this should be the function that introduces Mul() and Add() IR nodes. Takes the ordered canonical flattened expr and
+# rewrite with Mul() and Add() nodes.
+# Actually, this has to be called BEFORE we rewrite with semantic nodes! 
+def IR_construct(canonical_expr):
+    print("IR construct:\n", canonical_expr)
+    # if [[2 terms]] return MUL
+    
+
 # this not working! This list approach is probably wrong.
+# This is IR rewrite. This is the last thing to be called.
 def recognition(canonical_expr):
     print("RECOGNITION: \n", canonical_expr)
     node = None
@@ -343,23 +356,14 @@ def recognition(canonical_expr):
                 
             # need to change in canonical_expr        
         print(canonical_expr)
-            
 
-def get_tags(list_expr):
-    """ returns a list of only the tags from the expression """
-    tags = []
-    if list_expr is not None:
-        for i in list_expr:
-            if hasattr(i, "tag"):
-                tags.append(i.tag)
-            elif isinstance(i, list):
-                tags.append(get_tags(i))
-    return tags
+
+
+
 
 
 def build_node(src_node, canonical_expr):
-    print("BUILD NODE:\n", canonical_expr)
-
+    pass
 
 
 # TODO:
