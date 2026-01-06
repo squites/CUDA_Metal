@@ -182,7 +182,7 @@ def get_param_idx(kernel_params, node):
 
 def semantic_analysis(node): # this calls pattern_matching, where it'll classify the child node based on the semantic meaning
     """ checks the structure of the sub-tree of this node, and based on that structure generate a semantic node """
-    # if its something as global thread id, create a new node for it.
+    # if its something as global thread id, create a new node for it and replace it.
     # How the pattern matching must work:
     # 1 - canonicalize(normalize): operations stays the same format(order) always
     # 2 - pattern matching: when you see some specific node, rewrite to a new semantic node ex: Global1DThreadId()
@@ -198,12 +198,15 @@ def semantic_analysis(node): # this calls pattern_matching, where it'll classify
 def pattern_matching(node): # will recursively go down until there's no more Binary node, and return a pattern for it
     print("PATTERN MATCHING:\n", node)
     canonical_expr = canonicalize(node)
-    print(" ** Canonical expr:", canonical_expr)
+    print(" ** Canonical expr:", canonical_expr) # here prints the canonicalized expression for further steps
     # IR construct
-    IR_construct(canonical_expr)
+    if canonical_expr is not None:
+        new_ir = IR_construct(canonical_expr)
     # IR rewrite
-    recognition(canonical_expr)
-    print("canonical expr:", canonical_expr)
+        recognition(new_ir)
+        build_node(node, new_ir)
+        print("NODE: ", node)
+        #print("canonical expr:", canonical_expr)
     #print("Recognition:", recog)
     # try to normalize and find get the pattern matching here
     # build_node(node, canonical_expr)
@@ -335,10 +338,24 @@ def fold(terms, op="*"):
 # this should be the function that introduces Mul() and Add() IR nodes. Takes the ordered canonical flattened expr and
 # rewrite with Mul() and Add() nodes.
 # Actually, this has to be called BEFORE we rewrite with semantic nodes! 
-def IR_construct(canonical_expr):
+# OBS: there could be a case where we multiply 3 cuda variables. This need to be represented as Mul(Mul(a,b), c) first.
+# I think we can hardcode this part, because after folding, all terms are only len == 2. Except if there's a mul between 3 cuda vars
+def IR_construct(canonical_expr, i=0):
     print("IR construct:\n", canonical_expr)
-    # if [[2 terms]] return MUL
+    if isinstance(canonical_expr, list):
+        for inner in range(len(canonical_expr)):
+            print("inner: ", canonical_expr[inner])
+            canonical_expr[inner] = Mul(canonical_expr[inner])
+            print("new inner: ", canonical_expr[inner])
+        new_ir = Add(canonical_expr)
+        print("new_ir:",  new_ir)
+        return new_ir
+
+            #if len(inner) > 1: # means its a Mul() node
+            #    node = construct(t)
     
+
+
 
 # this not working! This list approach is probably wrong.
 # This is IR rewrite. This is the last thing to be called.
@@ -346,24 +363,23 @@ def recognition(canonical_expr):
     print("RECOGNITION: \n", canonical_expr)
     node = None
     if canonical_expr is not None:
-        for t in canonical_expr:
-            for x in range(len(t)):
-                if isinstance(t[x], CudaVar):
-                    if t[x].base == "threadIdx": node = ThreadIdx(dim=t[x].dim)
-                    elif t[x].base == "blockIdx": node = BlockIdx(dim=t[x].dim)
-                    elif t[x].base == "blockDim": node = BlockDim(dim=t[x].dim)
-                    t[x] = node
+        for t in canonical_expr.operands: # error here
+            print("t:", t)
+            for x in range(len(t.operands)):
+                if isinstance(t.operands[x], CudaVar): 
+                    if t.operands[x].base == "threadIdx": node = ThreadIdx(dim=t.operands[x].dim)
+                    elif t.operands[x].base == "blockIdx": node = BlockIdx(dim=t.operands[x].dim)
+                    elif t.operands[x].base == "blockDim": node = BlockDim(dim=t.operands[x].dim)
+                    t.operands[x] = node
                 
             # need to change in canonical_expr        
-        print(canonical_expr)
-
-
-
-
+        print("oi: ", canonical_expr)
 
 
 def build_node(src_node, canonical_expr):
-    pass
+    print("NODE: ", src_node)
+    print("EXPR: ", canonical_expr)
+
 
 
 # TODO:
