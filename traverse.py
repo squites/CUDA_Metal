@@ -190,8 +190,11 @@ def semantic_analysis(node): # this calls pattern_matching, where it'll classify
     print("-------------------------------------------------------------------------------------")
     print("SEMANTIC ANALYSIS:\n", node)
     for child in node.children():
+        print("child:", child)
         # canonicalize()? 
-        pattern_matching(child)
+        child_val = pattern_matching(child)
+        node.value = child_val
+    print("NEW NODE VALUE:\n", node)
         # ...
 
 
@@ -204,8 +207,11 @@ def pattern_matching(node): # will recursively go down until there's no more Bin
         new_ir = IR_construct(canonical_expr)
     # IR rewrite
         recognition(new_ir)
-        build_node(node, new_ir)
+        new_ir = IR_rewrite(new_ir)
+        #build_node(node, new_ir)
         print("NODE: ", node)
+        print("IR: ", new_ir)
+        return new_ir # just checking if Declaration node value will now change to GlobalThreadIdx
         #print("canonical expr:", canonical_expr)
     #print("Recognition:", recog)
     # try to normalize and find get the pattern matching here
@@ -355,8 +361,6 @@ def IR_construct(canonical_expr, i=0):
             #    node = construct(t)
     
 
-
-
 # this not working! This list approach is probably wrong.
 # This is IR rewrite. This is the last thing to be called.
 def recognition(canonical_expr):
@@ -371,9 +375,29 @@ def recognition(canonical_expr):
                     elif t.operands[x].base == "blockIdx": node = BlockIdx(dim=t.operands[x].dim)
                     elif t.operands[x].base == "blockDim": node = BlockDim(dim=t.operands[x].dim)
                     t.operands[x] = node
-                
-            # need to change in canonical_expr        
-        print("oi: ", canonical_expr)
+
+
+# adding high-level semantic nodes to the expressions
+# Add(operands=[Mul(operands=[ThreadIdx(dim='x')]), Mul(operands=[BlockIdx(dim='x'), BlockDim(dim='x')])]) 
+# -> GlobalThreadIdx()
+def IR_rewrite(expr):
+    print("IR REWRITE:\n", expr)
+
+    if isinstance(expr, Add) and len(expr.operands) == 2:
+        for opr in expr.operands:
+            print("opr:", opr)
+            if isinstance(opr, Mul) and opr.operands == 1:   # Mul(operands=[ThreadIdx(dim='x')])
+                if not isinstance(opr.operands, ThreadIdx): return False
+                #continue
+            elif isinstance(opr, Mul) and opr.operands == 2: # Mul(operands=[BlockIdx(dim='x'), BlockDim(dim='x')
+                if isinstance(opr.operands[0], BlockDim):
+                    if not isinstance(opr.operands[1], BlockIdx): return False
+                elif isinstance(opr.operands[0], BlockIdx):
+                    if not isinstance(opr.operands[1], BlockDim): return False
+        print("This is a global thread idx calculation!")
+        return GlobalThreadIdx(dim="x") # change "dim" to be the same one calculated by the Binary node. If there's 2
+
+
 
 
 def build_node(src_node, canonical_expr):
