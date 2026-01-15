@@ -69,7 +69,7 @@ class CUDAVisitor(object):
     # body of the kernel. We need to have a way to move them into Parameters when they're thread index 
     # calculations.
     def visit_Declaration(self, node, parent=None):
-        semantic_analysis(node)
+        semantic_analysis(node) # when we rewrite the IR with GlobalThreadIdx() node for example, the code calls the visit_error() function, because there's no visit_GlobalThreadIdx() node for it. This could be a problem when creating METAL_ast. Fix that later!
         memory = node.memory if node.memory else None
         type = node.type
         name = self.visit(node.name) if isnode(node.name) else node.name
@@ -138,7 +138,7 @@ class CUDAVisitor(object):
         metal_var = metal_map(node.base)
         return METAL_Var(metal_var)
 
-    def visit_error(self, node, attr):
+    def visit_error(self, node, attr): 
         print(f"The node {node} has no attribute named {attr}!")
 
 
@@ -207,7 +207,7 @@ def pattern_matching(node): # will recursively go down until there's no more Bin
         new_ir = IR_construct(canonical_expr)
     # IR rewrite
         recognition(new_ir)
-        new_ir = IR_rewrite(new_ir)
+        new_ir = IR_rewrite(new_ir, node)
         #build_node(node, new_ir)
         print("NODE: ", node)
         print("IR: ", new_ir)
@@ -377,32 +377,53 @@ def recognition(canonical_expr):
                     t.operands[x] = node
 
 
+# create a class for IR rewrites later for readability! Also, move to a new file `rewrite.py` or `pattern_match.py`
+# Essentially, each rule will be on a list of rules.
+def rewrite_GlobalThreadIdx(node): # rule 1
+    # node: Add(operands=[Mul(operands=[ThreadIdx(dim='x')]), Mul(operands=[BlockIdx(dim='x'), BlockDim(dim='x')])]) 
+    if not isinstance(node, Add) or len(node.operands) != 2: 
+        return None
+
+    l,r = node.operands
+    if not isinstance(l, Mul) or not isinstance(r, Mul):
+        return None
+
+    def is_thread(term):
+        return (len(term.operands) == 1 and isinstance(term.operands[0], ThreadIdx))
+
+    def is_block(term):
+        if (len(term.operands) != 2):
+            return False
+
+        a,b = term.operands
+        return (isinstance(a, BlockIdx) and isinstance(b, BlockDim)) or (isinstance(a, BlockDim) and isinstance(b, BlockIdx))
+
+    dim = l.operands[0].dim
+    if is_thread(l) and is_block(r):
+        return GlobalThreadIdx(dim=dim)
+    else:
+        return None
+
+
+#rules = []
+#rules.append(rewrite_GlobalThreadIdx)
+
 # adding high-level semantic nodes to the expressions
 # Add(operands=[Mul(operands=[ThreadIdx(dim='x')]), Mul(operands=[BlockIdx(dim='x'), BlockDim(dim='x')])]) 
 # -> GlobalThreadIdx()
-def IR_rewrite(expr):
+def IR_rewrite(expr, node):
+    """
+    the rewrite must be based on a rewrite rule. It only has two outcomes: 1-match, so rewrite the node. 2-NOT match.
+    """
     print("IR REWRITE:\n", expr)
-
-    if isinstance(expr, Add) and len(expr.operands) == 2:
-        for opr in expr.operands:
-            print("opr:", opr)
-            if isinstance(opr, Mul) and opr.operands == 1:   # Mul(operands=[ThreadIdx(dim='x')])
-                if not isinstance(opr.operands, ThreadIdx): return False
-                #continue
-            elif isinstance(opr, Mul) and opr.operands == 2: # Mul(operands=[BlockIdx(dim='x'), BlockDim(dim='x')
-                if isinstance(opr.operands[0], BlockDim):
-                    if not isinstance(opr.operands[1], BlockIdx): return False
-                elif isinstance(opr.operands[0], BlockIdx):
-                    if not isinstance(opr.operands[1], BlockDim): return False
-        print("This is a global thread idx calculation!")
-        return GlobalThreadIdx(dim="x") # change "dim" to be the same one calculated by the Binary node. If there's 2
-
-
-
-
-def build_node(src_node, canonical_expr):
-    print("NODE: ", src_node)
-    print("EXPR: ", canonical_expr)
+    x = rewrite_GlobalThreadIdx(expr)
+    if x is not None:
+        expr = x
+        print("Rewriting node!\n", expr)
+        return expr
+    else:
+        return node
+    
 
 
 
