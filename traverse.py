@@ -165,53 +165,57 @@ def metal_map(cuda_term):
         case "__syncthreads()": metal_term = "threadgroud_barrier()"
     return metal_term
 
-
-def check_nodes(node, params):
-    if node in params:
-        return True
-    else:
-        return False
-
-
-def get_param_idx(kernel_params, node):
-    for p in kernel_params:
-        if node.type == p.type and node.name == p.name:
-            return int(p)
-    return 0
+# remove?
+#def check_nodes(node, params):
+#    if node in params:
+#        return True
+#    else:
+#        return False
 
 
-def semantic_analysis(node): # this calls pattern_matching, where it'll classify the child node based on the semantic meaning
+# remove?
+#def get_param_idx(kernel_params, node):
+#    for p in kernel_params:
+#        if node.type == p.type and node.name == p.name:
+#            return int(p)
+#    return 0
+
+
+
+# REFACTOR AND CLEAN THIS! MOVE TO NEW FILE `pattern_match.py`
+#
+def semantic_analysis(node): # need this? or can remove all to pattern matching
     """ checks the structure of the sub-tree of this node, and based on that structure generate a semantic node """
     # if its something as global thread id, create a new node for it and replace it.
-    # How the pattern matching must work:
     # 1 - canonicalize(normalize): operations stays the same format(order) always
     # 2 - pattern matching: when you see some specific node, rewrite to a new semantic node ex: Global1DThreadId()
     assert isinstance(node, (Declaration, Assignment, Binary, CudaVar)), "Invalid node!"
     print("-------------------------------------------------------------------------------------")
-    print("SEMANTIC ANALYSIS:\n", node)
+    print("SEMANTIC ANALYSIS:\n", node) # Declaration(...) essentially
     for child in node.children():
         print("child:", child)
         # canonicalize()? 
-        child_val = pattern_matching(child)
-        node.value = child_val
+        #child_val = pattern_matching(child)
+        #node.value = child_val
+        node.value = pattern_matching(child)
     print("NEW NODE VALUE:\n", node)
-        # ...
 
 
 def pattern_matching(node): # will recursively go down until there's no more Binary node, and return a pattern for it
-    print("PATTERN MATCHING:\n", node)
+    print("PATTERN MATCHING:\n", node) # Binary(...)
     canonical_expr = canonicalize(node)
-    print(" ** Canonical expr:", canonical_expr) # here prints the canonicalized expression for further steps
+    print(" ** Canonical expr:", canonical_expr) # canonicalized and folded
     # IR construct
     if canonical_expr is not None:
-        new_ir = IR_construct(canonical_expr)
+        newIR = IR_construct(canonical_expr)
+        print("IR: ", newIR)
     # IR rewrite
-        recognition(new_ir)
-        new_ir = IR_rewrite(new_ir, node)
+        #recognition(new_ir)
+        newIR = IR_rewrite(newIR, node, rules)
         #build_node(node, new_ir)
         print("NODE: ", node)
-        print("IR: ", new_ir)
-        return new_ir # just checking if Declaration node value will now change to GlobalThreadIdx
+        print("IR: ", newIR)
+        return newIR # just checking if Declaration node value will now change to GlobalThreadIdx
         #print("canonical expr:", canonical_expr)
     #print("Recognition:", recog)
     # try to normalize and find get the pattern matching here
@@ -220,7 +224,7 @@ def pattern_matching(node): # will recursively go down until there's no more Bin
 
 
 def canonicalize(node): # here will rewrite the node changing the order of the factors, so they can always be the same
-    print("CANONICALIZE:\n", node)
+    print("CANONICALIZE:\n", node) # Binary(...)
     ops = ["+", "*"]
     if isinstance(node, Binary) and node.op in ops:
         terms = flatten(node, node.op)  # flatten by "+" into terms
@@ -229,11 +233,14 @@ def canonicalize(node): # here will rewrite the node changing the order of the f
                 terms[t] = flatten(terms[t], terms[t].op) # flatten by "*" into factors
 
         print(" ** flattened:", terms)
-        tagged = addtag(terms)
-        print(" ** tagged:", tagged)
-        reordered = reorder(tagged) # trying this version using .tag node attribute
-        print(" ** reordered:", reordered)
-        return reordered
+        terms = reorder(addtag(terms))
+        print(" ** tagged and reordered:", )
+        return terms
+        #tagged = addtag(terms)
+        #print(" ** tagged:", tagged)
+        #reordered = reorder(tagged) # trying this version using .tag node attribute
+        #print(" ** reordered:", reordered)
+        #return reordered
     #return node # this is for nodes that aren't Declaration(Bin) # not working yet
 
 # keep flatten the way it is. The rewrite will be after, changing [] by Mul() and Add() IR nodes. This process is called
@@ -251,7 +258,7 @@ def flatten(node, op):
 # addtag but directly on the node attr instead of creating a tuple. adding one more dim of complexity is bad
 def addtag(terms):
     """ adds a tag on each node to represent what level that node works with (e.g. thread, block, grid, ...) """
-    print("ADD TAG EXPR:\n", terms)
+    #print("ADD TAG EXPR:\n", terms)
     for term in range(len(terms)):
         if not isinstance(terms[term], list):
             terms[term] = [terms[term]]
@@ -265,7 +272,6 @@ def addtag(terms):
                     terms[term][sub].tag = "grid"
             elif isinstance(terms[term][sub], Literal):
                 terms[term][sub].tag = "literal"
-    #print("ADD TAG EXPR:\n", terms)
     return terms
 
 
@@ -293,9 +299,9 @@ def reorder(terms):
         for i in terms[t]:
             if isinstance(i, Literal):
                 terms[t] = fold(terms[t], op="*") # need to figure it out how to pass the 'op' to 'fold()'
-                print("returned fold: ", terms[t]) # debug
+                #print("returned fold: ", terms[t]) # debug
                 break # added this break to fix terms[t] problem. Not sure if this is right, but it works
-    print("inner sorted terms:", terms)
+    #print("inner sorted terms:", terms)
 
     # (outer sort)
     for t1 in range(len(terms)-1):
@@ -305,13 +311,13 @@ def reorder(terms):
                 tmp = terms[t1]
                 terms[t1] = terms[t2]
                 terms[t2] = tmp
-    print("outer sorted terms:", terms)
+    #print("outer sorted terms:", terms) # debug
     return terms
 
 
 def fold(terms, op="*"):
     """ constant folding to optimize the METAL ast """
-    print("FOLD_ATTR:\n", terms)
+    #print("FOLD_ATTR:\n", terms) # debug
     assert isinstance(terms, list), "terms to be folded are not list!"
     folded = terms.copy()
     remove = []
@@ -325,7 +331,7 @@ def fold(terms, op="*"):
             elif terms[sub].value == "0" and op == "*":
                 pass
             else:
-                print(" ** accumulate **")
+                #print(" ** accumulate **") # debug
                 acc = acc * int(terms[sub].value) if op == "*" else acc + int(terms[sub].value)
                 node = terms[sub]
                 remove.append(terms[sub])
@@ -343,32 +349,23 @@ def fold(terms, op="*"):
 
 # this should be the function that introduces Mul() and Add() IR nodes. Takes the ordered canonical flattened expr and
 # rewrite with Mul() and Add() nodes.
-# Actually, this has to be called BEFORE we rewrite with semantic nodes! 
-# OBS: there could be a case where we multiply 3 cuda variables. This need to be represented as Mul(Mul(a,b), c) first.
-# I think we can hardcode this part, because after folding, all terms are only len == 2. Except if there's a mul between 3 cuda vars
-def IR_construct(canonical_expr, i=0):
+def IR_construct(canonical_expr):
     print("IR construct:\n", canonical_expr)
     if isinstance(canonical_expr, list):
         for inner in range(len(canonical_expr)):
-            print("inner: ", canonical_expr[inner])
             canonical_expr[inner] = Mul(canonical_expr[inner])
-            print("new inner: ", canonical_expr[inner])
-        new_ir = Add(canonical_expr)
-        print("new_ir:",  new_ir)
-        return new_ir
-
-            #if len(inner) > 1: # means its a Mul() node
-            #    node = construct(t)
+        newIR = Add(canonical_expr)
+        #print("new_ir: ", newIR) #debug
+        recognition(newIR)
+        return newIR
     
-
-# this not working! This list approach is probably wrong.
 # This is IR rewrite. This is the last thing to be called.
 def recognition(canonical_expr):
     print("RECOGNITION: \n", canonical_expr)
     node = None
     if canonical_expr is not None:
-        for t in canonical_expr.operands: # error here
-            print("t:", t)
+        for t in canonical_expr.operands:
+            #print("t:", t) #debug
             for x in range(len(t.operands)):
                 if isinstance(t.operands[x], CudaVar): 
                     if t.operands[x].base == "threadIdx": node = ThreadIdx(dim=t.operands[x].dim)
@@ -381,49 +378,82 @@ def recognition(canonical_expr):
 # Essentially, each rule will be on a list of rules.
 def rewrite_GlobalThreadIdx(node): # rule 1
     # node: Add(operands=[Mul(operands=[ThreadIdx(dim='x')]), Mul(operands=[BlockIdx(dim='x'), BlockDim(dim='x')])]) 
-    if not isinstance(node, Add) or len(node.operands) != 2: 
+    if not isinstance(node, Add):
+        return None
+
+    if len(node.operands) != 2:
         return None
 
     l,r = node.operands
     if not isinstance(l, Mul) or not isinstance(r, Mul):
         return None
 
-    def is_thread(term):
+    def isthread(term):
         return (len(term.operands) == 1 and isinstance(term.operands[0], ThreadIdx))
 
-    def is_block(term):
+    def isblock(term):
         if (len(term.operands) != 2):
             return False
 
         a,b = term.operands
         return (isinstance(a, BlockIdx) and isinstance(b, BlockDim)) or (isinstance(a, BlockDim) and isinstance(b, BlockIdx))
 
-    dim = l.operands[0].dim
-    if is_thread(l) and is_block(r):
-        return GlobalThreadIdx(dim=dim)
-    else:
-        return None
+    # what if l.dim is different than r.dim? This won't be common, but maybe can happen?
+    if isthread(l) and isblock(r): #match
+        return {
+            "dim": l.operands[0].dim,
+            # ... we can capture more stuff from the node if we want. ThreadIdx object for example.
+        }
+    
+    return None
+
+    #dim = l.operands[0].dim
+    #if is_thread(l) and is_block(r):
+    #    return GlobalThreadIdx(dim=dim)
+    #else:
+    #    return None
 
 
-#rules = []
-#rules.append(rewrite_GlobalThreadIdx)
+rules = []
+rules.append(rewrite_GlobalThreadIdx)
 
 # adding high-level semantic nodes to the expressions
 # Add(operands=[Mul(operands=[ThreadIdx(dim='x')]), Mul(operands=[BlockIdx(dim='x'), BlockDim(dim='x')])]) 
 # -> GlobalThreadIdx()
-def IR_rewrite(expr, node):
+# IMPORTANT! THIS HAS TO BE RECURSIVE. NEED TO IMPLEMENT THIS! Or the rule? 
+def IR_rewrite(expr, node, rules=rules):
     """
     the rewrite must be based on a rewrite rule. It only has two outcomes: 1-match, so rewrite the node. 2-NOT match.
     """
     print("IR REWRITE:\n", expr)
-    x = rewrite_GlobalThreadIdx(expr)
-    if x is not None:
-        expr = x
-        print("Rewriting node!\n", expr)
-        return expr
-    else:
+    if not hasattr(node, "operands"):
         return node
     
+    node.operands = [IR_rewrite(expr, op, rules) for op in node.operands]
+    print("node.operands:", node.operands)
+    
+    for rule in rules:
+        new_node = rule(node)
+        if new_node is not None:
+            return IR_rewrite(new_node, rules)
+    return node
+
+    #x = rewrite_GlobalThreadIdx(expr)
+    #if x is not None:
+    #    expr = x
+    #    print("Rewriting node!\n", expr)
+    #    return expr
+    #else:
+    #    return node
+    
+
+
+
+# OBS:
+# 1- organize the code! Move IR rewrite stuff to other file and encapsulate with classes. Also, move pattern matcher.
+# 2- clean the code! this is most important. There's a lot of stuff that adds complexity that I think aren't necessary
+#    even if they are, there's too much, and I think I can clean and organize it better.
+# 3- understand better this rewrite rules and how the pattern matching works properly. 
 
 
 
