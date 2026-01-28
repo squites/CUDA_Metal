@@ -211,7 +211,8 @@ def pattern_matching(node): # will recursively go down until there's no more Bin
         print("IR: ", newIR)
     # IR rewrite
         #recognition(new_ir)
-        newIR = IR_rewrite(newIR, node, rules)
+        #newIR = IR_rewrite(newIR, rules)
+        newIR = IRrewrite(newIR)
         #build_node(node, new_ir)
         print("NODE: ", node)
         print("IR: ", newIR)
@@ -374,79 +375,95 @@ def recognition(canonical_expr):
                     t.operands[x] = node
 
 
-# create a class for IR rewrites later for readability! Also, move to a new file `rewrite.py` or `pattern_match.py`
-# Essentially, each rule will be on a list of rules.
-def rewrite_GlobalThreadIdx(node): # rule 1
-    # node: Add(operands=[Mul(operands=[ThreadIdx(dim='x')]), Mul(operands=[BlockIdx(dim='x'), BlockDim(dim='x')])]) 
-    if not isinstance(node, Add):
-        return None
-
-    if len(node.operands) != 2:
-        return None
-
-    l,r = node.operands
-    if not isinstance(l, Mul) or not isinstance(r, Mul):
-        return None
-
-    def isthread(term):
-        return (len(term.operands) == 1 and isinstance(term.operands[0], ThreadIdx))
-
-    def isblock(term):
-        if (len(term.operands) != 2):
-            return False
-
-        a,b = term.operands
-        return (isinstance(a, BlockIdx) and isinstance(b, BlockDim)) or (isinstance(a, BlockDim) and isinstance(b, BlockIdx))
-
-    # what if l.dim is different than r.dim? This won't be common, but maybe can happen?
-    if isthread(l) and isblock(r): #match
-        return {
-            "dim": l.operands[0].dim,
-            # ... we can capture more stuff from the node if we want. ThreadIdx object for example.
-        }
-    
-    return None
-
-    #dim = l.operands[0].dim
-    #if is_thread(l) and is_block(r):
-    #    return GlobalThreadIdx(dim=dim)
-    #else:
-    #    return None
-
-
-rules = []
-rules.append(rewrite_GlobalThreadIdx)
-
 # adding high-level semantic nodes to the expressions
 # Add(operands=[Mul(operands=[ThreadIdx(dim='x')]), Mul(operands=[BlockIdx(dim='x'), BlockDim(dim='x')])]) 
 # -> GlobalThreadIdx()
-# IMPORTANT! THIS HAS TO BE RECURSIVE. NEED TO IMPLEMENT THIS! Or the rule? 
-def IR_rewrite(expr, node, rules=rules):
-    """
-    the rewrite must be based on a rewrite rule. It only has two outcomes: 1-match, so rewrite the node. 2-NOT match.
-    """
-    print("IR REWRITE:\n", expr)
-    if not hasattr(node, "operands"):
+# Move this to new .py file!
+class Rule:
+    def __init__(self, name, fpattern, fbuilder):
+        self.name = name
+        self.fpattern = fpattern
+        self.fbuilder = fbuilder
+    
+    def match(self, node):
+        print("matching: ", node)
+        binds = self.fpattern(node)
+        if binds is not None:
+            return self.fbuilder(binds)
+        return None
+
+class Rewriter:
+    def __init__(self, rules):
+        self.rules = rules
+
+    def rewrite(self, node):
+        print("Rewriting... ", node)
+        if not hasattr(node, "operands"):
+            print("LEAF!")
+            return node
+        nodeops = [self.rewrite(child) for child in node.operands]
+        print("nodeops: ", nodeops)
+
+        for rule in self.rules:
+            print("RULE: ", rule.name)
+            x = rule.match(node)
+            print("x: ", x)
+            if x is not None:
+                print("MATCH!")
+                return x
+        print("NO MATCH!")
         return node
-    
-    node.operands = [IR_rewrite(expr, op, rules) for op in node.operands]
-    print("node.operands:", node.operands)
-    
-    for rule in rules:
-        new_node = rule(node)
-        if new_node is not None:
-            return IR_rewrite(new_node, rules)
-    return node
 
-    #x = rewrite_GlobalThreadIdx(expr)
-    #if x is not None:
-    #    expr = x
-    #    print("Rewriting node!\n", expr)
-    #    return expr
-    #else:
-    #    return node
-    
+# pattern functions:
+def pat_GlobalThreadIdx(node):
+    print("Pattern function: ", node)
+    if not isinstance(node, Add):
+        return None
+    if len(node.operands) != 2:
+        return None
+    l, r = node.operands
+    print(f"l {l}\nr {r}")
+    if not isinstance(l, Mul) or not isinstance(r, Mul):
+        return None
 
+    def isthread(x):
+        #print("isthread:", x)
+        return (len(x.operands) == 1 and isinstance(x.operands[0], ThreadIdx))
+
+    def isblock(x):
+        #print("isblock: ", x) 
+        if len(x.operands) != 2:
+            return False
+        a,b = x.operands
+        return (isinstance(a, BlockIdx) and isinstance(b, BlockDim)) or (isinstance(a, BlockDim) and isinstance(b, BlockIdx))
+
+    if isthread(l) and isblock(r):
+        return {
+            "dim": l.operands[0].dim
+        }
+    else:
+        return None
+
+# builder functions:
+def build_GlobalThreadIdx(binds):
+    """ create node GlobalThreadIdx(params) """     
+    print("Building Node: ", binds)
+    return GlobalThreadIdx(dim=binds["dim"])
+
+def IRrewrite(subtree):
+    print("IR subtree: ", subtree)
+    
+    # rules
+    rule1 = Rule(
+        "GlobalThreadIdx",  # name
+        pat_GlobalThreadIdx,  # pattern function
+        build_GlobalThreadIdx # builder function
+    )
+
+    rewriter = Rewriter([rule1])
+    new_tree = rewriter.rewrite(subtree)
+    print("RESULT: ", new_tree)
+    return new_tree
 
 
 # OBS:
