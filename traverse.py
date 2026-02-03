@@ -217,18 +217,24 @@ def canonicalize(node): # here will rewrite the node changing the order of the f
     if isinstance(node, Binary) and node.op in ops:
         terms = flatten(node, node.op)  # flatten by "+" into terms
         for t in range(len(terms)):
-            if isinstance(terms[t], Binary):    
-                terms[t] = flatten(terms[t], terms[t].op) # flatten by "*" into factors
+            terms[t] = flatten(terms[t], terms[t].op) if isinstance(terms[t], Binary) else [terms[t]]
+
+        # call IR construct
+        terms = IRconstruct(terms)
 
         print(" ** flattened:", terms)
-        terms = reorder(addtag(terms))
-        print(" ** tagged and reordered:", )
+        terms = addtag(terms)
+        print("tagged: ", terms)
+        terms = reorder(terms)
+        print("reordered: ", terms)
+        #terms = reorder(addtag(terms))
+        #print(" ** tagged and reordered:", )
         return terms
-    #return node # this is for nodes that aren't Declaration(Bin) # not working yet
+    #return node # this is for nodes that aren't Declaration(Bin). not working yet
 
 # keep flatten the way it is. The rewrite will be after, changing [] by Mul() and Add() IR nodes. This process is called
 # Future: remove IRconstruct and add Mul() and Add() nodes here already
-def flatten(node, op):
+def flatten(node, op="*"):
     """ separates terms individually (in nodes). At first we separate by `+`, but then all commutative ops """
     print(f"FLATTEN: {node} {op}")
     if isinstance(node, Binary) and op == node.op:
@@ -238,107 +244,223 @@ def flatten(node, op):
     else:
         return [node]
 
+def addtag(node):
+    print("TAG EXPR:\n", node)
+    for term in node.operands:
+        for i in term.operands:
+            if isinstance(i, CudaVar):
+                if "thread" in i.base:
+                    i.tag = "thread"
+                elif "block" in i.base:
+                    i.tag = "block"
+                else:
+                    i.tag = "grid"
+            elif isinstance(i, Literal):
+                i.tag = "literal"
+    return node
+
 # add tag but directly on the node attr instead of creating a tuple. adding one more dim of complexity is bad
-def addtag(terms):
-    """ adds a tag on each node to represent what level that node works with (e.g. thread, block, grid, ...) """
-    #print("TAG EXPR:\n", terms)
-    for term in range(len(terms)):
-        if not isinstance(terms[term], list):
-            terms[term] = [terms[term]]
-        for sub in range(len(terms[term])):
-            if isinstance(terms[term][sub], CudaVar):
-                if "thread" in terms[term][sub].base: 
-                    terms[term][sub].tag = "thread"
-                elif "block" in terms[term][sub].base: 
-                    terms[term][sub].tag = "block"
-                else: 
-                    terms[term][sub].tag = "grid"
-            elif isinstance(terms[term][sub], Literal):
-                terms[term][sub].tag = "literal"
-    return terms
+#def addtag(terms):
+#    """ adds a tag on each node to represent what level that node works with (e.g. thread, block, grid, ...) """
+#    print("TAG EXPR:\n", terms)
+#    for term in range(len(terms)):
+#        if not isinstance(terms[term], list):
+#            terms[term] = [terms[term]]
+#        for sub in range(len(terms[term])):
+#            if isinstance(terms[term][sub], CudaVar):
+#                if "thread" in terms[term][sub].base: 
+#                    terms[term][sub].tag = "thread"
+#                elif "block" in terms[term][sub].base: 
+#                    terms[term][sub].tag = "block"
+#                else: 
+#                    terms[term][sub].tag = "grid"
+#            elif isinstance(terms[term][sub], Literal):
+#                terms[term][sub].tag = "literal"
+#    return terms
 
-
-def reorder(terms):
-    """ reorders the terms based on the tag of each node """
-    print("REORDER ATTR:\n", terms)
+def reorder(node):
+    print("REORDER:\n", node)
     order = {
-        "thread":  0,
-        "block":   1,
-        "grid":    2,
+        "thread": 0,
+        "block": 1,
+        "grid": 2,
         "literal": 3,
     }
-
-    # (inner sort)
-    for t in range(len(terms)): # terms[t] == term
-        for i in range(len(terms[t])-1): # loop through factors of one term
-            for j in range(1, len(terms[t])):
-                if isinstance(terms[t], list) and len(terms[t]) > 1:
-                    if order.get(terms[t][i].tag) > order.get(terms[t][j].tag):
-                        tmp = terms[t][i]
-                        terms[t][i] = terms[t][j]
-                        terms[t][j] = tmp
-
+    # inner sort
+    for mul in node.operands:
+        print("mul:", mul)
+        mul.operands = sorted(mul.operands, key=lambda x: order.get(x.tag, 99))
+        
+        print("mul.operands:", mul.operands)
         # fold
-        for i in terms[t]:
+        for i in mul.operands:
+            print("i: ", i)
             if isinstance(i, Literal):
-                terms[t] = fold(terms[t], op="*") # need to figure it out how to pass the 'op' to 'fold()'
-                #print("returned fold: ", terms[t]) # debug
-                break # added this break to fix terms[t] problem. Not sure if this is right, but it works
+                #mul.operands = fold(mul, op="*")
+                fold(mul, op="*")
+                print(f"folded: {mul}\n{mul.operands}")
+                break # jumps outside the for i in mul.operands loop
 
-    # (outer sort)
-    for t1 in range(len(terms)-1):
-        for t2 in range(1, len(terms)):
-            # it's inner sorted, so first tag will always be the priority tag of that term (sublist)
-            if order.get(terms[t1][0].tag) > order.get(terms[t2][0].tag):
-                tmp = terms[t1]
-                terms[t1] = terms[t2]
-                terms[t2] = tmp
-    #print("outer sorted terms:", terms) # debug
-    return terms
+    # outer sort
+    node.operands = sorted(node.operands, key=lambda m: order.get(m.operands[0].tag, 99))
+    return node
 
+
+#def reorder(terms):
+#    """ reorders the terms based on the tag of each node """
+#    print("REORDER ATTR:\n", terms)
+#    order = {
+#        "thread":  0,
+#        "block":   1,
+#        "grid":    2,
+#        "literal": 3,
+#    }
+#
+#    # (inner sort)
+#    for t in range(len(terms)): # terms[t] == term
+#        for i in range(len(terms[t])-1): # loop through factors of one term
+#            for j in range(1, len(terms[t])):
+#                if isinstance(terms[t], list) and len(terms[t]) > 1:
+#                    if order.get(terms[t][i].tag) > order.get(terms[t][j].tag):
+#                        tmp = terms[t][i]
+#                        terms[t][i] = terms[t][j]
+#                        terms[t][j] = tmp
+#
+#        # fold
+#        for i in terms[t]:
+#            if isinstance(i, Literal):
+#                terms[t] = fold(terms[t], op="*") # need to figure it out how to pass the 'op' to 'fold()'
+#                #print("returned fold: ", terms[t]) # debug
+#                break # added this break to fix terms[t] problem. Not sure if this is right, but it works
+#
+#    # (outer sort)
+#    for t1 in range(len(terms)-1):
+#        for t2 in range(1, len(terms)):
+#            # it's inner sorted, so first tag will always be the priority tag of that term (sublist)
+#            if order.get(terms[t1][0].tag) > order.get(terms[t2][0].tag):
+#                tmp = terms[t1]
+#                terms[t1] = terms[t2]
+#                terms[t2] = tmp
+#    #print("outer sorted terms:", terms) # debug
+#    return terms
+
+# new fold version
+def fold(terms, op="*"):
+    print("FOLD: \n", terms)
+    assert isinstance(terms, Mul), "Wrong object!"
+    acc = 1 if op == "*" else 0
+    # keep track of the node types
+    literals = [sub for sub in terms.operands if isinstance(sub, Literal)]
+    vars = [sub for sub in terms.operands if not isinstance(sub, Literal)]
+    print("literals: ", literals)
+    print("vars: ", vars)
+
+    for lit in literals:
+        print("lit:", lit)
+        acc = acc*int(lit.value) if op == "*" else acc+int(lit.value)
+        print("acc:", acc)
+
+    if acc == 1:
+        terms.operands = vars
+    elif acc == 0:
+        pass
+    else:
+        terms.operands = vars + [Literal(value=acc, tag="literal")]
+
+    print("RETURNED: ", terms)
+    #return terms
+
+# fixing FOLD for nodes with already Mul() and Add() nodes
+#def fold(terms, op="*"):
+#    print("fold: ", terms)
+#    assert isinstance(terms, Mul), "Wrong object!"
+#    folded = terms #copy.copy(terms) #terms.copy()
+#    remove = []
+#    node = None
+#    acc = 0 if op == "+" else 1
+#    print("folded: ", folded)
+#    print("remove: ", remove)
+#    print("node: ", node)
+#    print("acc: ", acc)
+#
+#    for sub in terms.operands:
+#        print("sub: ", sub)
+#        if isinstance(sub, Literal):
+#            if sub.value == "1" and op == "*":
+#                print("1*")
+#                #folded.remove(sub)
+#                #remove.append(sub) # add this?
+#            elif sub.value == "0" and op == "*":
+#                print("0*")
+#                #pass
+#            else:
+#                print(" ** accumulate **")
+#                acc = acc*int(sub.value) if op == "*" else acc+int(sub.value)
+#                print(acc)
+#                node = sub
+#                print(node)
+#                remove.append(sub)
+#                print(remove)
+#        else:
+#            continue
+#
+#    print("folded list:", folded)
+#    print("remove list:", remove)
+#    print("node: ", node)
+#    print("acc: ", acc)
+#    if remove != []:
+#        node.value = acc
+#        print("new node value:", node)
+#        for i in remove:
+#            if i in folded:
+#                folded.remove(i)
+#        folded.append(node)
+#
+#    return folded
 
 # need to rewrite this better! Also, this could be a rewrite rule afterwards.
-def fold(terms, op="*"):
-    """ constant folding to optimize the METAL ast """
-    #print("FOLD_ATTR:\n", terms) # debug
-    assert isinstance(terms, list), "terms to be folded are not list!"
-    folded = terms.copy()
-    remove = []
-    node = None
-    acc = 0 if op == "+" else 1
-
-    for sub in range(len(terms)):
-        if isinstance(terms[sub], Literal):
-            if terms[sub].value == "1" and op == "*":
-                folded.remove(folded[sub])
-            elif terms[sub].value == "0" and op == "*":
-                pass
-            else:
-                #print(" ** accumulate **") # debug
-                acc = acc * int(terms[sub].value) if op == "*" else acc + int(terms[sub].value)
-                node = terms[sub]
-                remove.append(terms[sub])
-        else:
-            continue
-    
-    if remove != []:
-        node.value = acc
-        for i in remove:
-            if i in folded:
-                folded.remove(i)
-        folded.append(node)
-    return folded
+#def fold(terms, op="*"):
+#    """ constant folding to optimize the METAL ast """
+#    #print("FOLD_ATTR:\n", terms) # debug
+#    assert isinstance(terms, list), "terms to be folded are not list!"
+#    folded = terms.copy()
+#    remove = []
+#    node = None
+#    acc = 0 if op == "+" else 1
+#
+#    for sub in range(len(terms)):
+#        if isinstance(terms[sub], Literal):
+#            if terms[sub].value == "1" and op == "*":
+#                folded.remove(folded[sub])
+#            elif terms[sub].value == "0" and op == "*":
+#                pass # add this to remove '* 0'
+#            else:
+#                #print(" ** accumulate **") # debug
+#                acc = acc * int(terms[sub].value) if op == "*" else acc + int(terms[sub].value)
+#                node = terms[sub]
+#                remove.append(terms[sub])
+#        else:
+#            continue
+#    
+#    if remove != []:
+#        node.value = acc
+#        for i in remove:
+#            if i in folded:
+#                folded.remove(i)
+#        folded.append(node)
+#    return folded
 
 
 # adds Mul() and Add() IR nodes. Takes the ordered canonical flattened expr and rewrite with Mul() and Add() nodes.
 def IRconstruct(expr):
     print("IR construct:\n", expr)
-    if isinstance(expr, list):
-        for inner in range(len(expr)):
-            expr[inner] = Mul(expr[inner])
-        newIR = Add(expr)
-        recognition(newIR)
-        return newIR
+    for inner in range(len(expr)):
+        expr[inner] = Mul(expr[inner])
+    newIR = Add(expr)
+    print(newIR)
+    recognition(newIR)
+    print(newIR)
+    return newIR
     
 # This is IR rewrite. This is the last thing to be called.
 def recognition(canonical_expr):
@@ -406,11 +528,9 @@ def pat_GlobalThreadIdx(node):
         return None
 
     def isthread(x):
-        #print("isthread:", x)
         return (len(x.operands) == 1 and isinstance(x.operands[0], ThreadIdx))
 
     def isblock(x):
-        #print("isblock: ", x) 
         if len(x.operands) != 2:
             return False
         a,b = x.operands
@@ -443,7 +563,19 @@ def IRrewrite(subtree):
     new_tree = rewriter.rewrite(subtree)
     print("RESULT: ", new_tree)
     return new_tree
-    
+
+
+# OBS:
+# 1- make the IR all in the beginning. So when we flatten the node, already create a high level IR
+#    with Mul/Add nodes and ThreadIdx/BlockIdx/BlockDim nodes as well. Make the IR all in the beginning.
+#    This is the Lower part, where we change the AST into IR
+# 2- canonicalize. So reorder, fold. We can remove addtag, because we can return its value by checking
+#    its IR node.
+# 3- pattern matching. IR rewrite to higher-level semantic nodes
+
+
+
+
 
 # TODO:
 # right approach:
