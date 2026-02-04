@@ -178,12 +178,12 @@ def metal_map(cuda_term):
 #
 # ---------------------------------------------------------------------------
 
+# Remove this?
 # move to new file `pattern_match.py`
-def semantic_analysis(node): # need this? or can remove all to pattern matching
+def semantic_analysis(node): 
     """ checks the structure of the sub-tree of this node, and based on that structure generate a semantic node """
-    # if its something as global thread id, create a new node for it and replace it.
     # 1 - canonicalize
-    # 2 - pattern matching: rewrite to a new semantic node ex: GlobalThreadIdx()
+    # 2 - pattern matching
     assert isinstance(node, (Declaration, Assignment, Binary, CudaVar)), "Invalid node!"
     print("-------------------------------------------------------------------------------------")
     print("SEMANTIC ANALYSIS:\n", node) # Declaration(...) essentially
@@ -198,45 +198,47 @@ def semantic_analysis(node): # need this? or can remove all to pattern matching
 
 def pattern_matching(node): # will recursively go down until there's no more Binary node, and return a pattern for it
     print("PATTERN MATCHING:\n", node) # Binary(...)
+    # 1-Lowering IR: (flatten, IRconstruct)
+    # 2-Canonicalize: (reorder, )
     canon = canonicalize(node)
     print(" ** Canonical expr:", canon) # canonicalized and folded
-    # IR construct
+    # IR rewrite
     if canon is not None:
-        newIR = IRconstruct(canon)
-        print("IR: ", newIR)
-        newIR = IRrewrite(newIR)
-        print("NODE: ", node)
-        print("FINAL IR: ", newIR)
+        newIR = IRrewrite(canon)
         return newIR # just checking if Declaration node value will now change to GlobalThreadIdx
     return None
 
+# create this function?
+# def lowering(node):
+#   flatten
+#   IRconstruct
+#   return IR
 
+# OBS: maybe move the flatten/IRconstruct out of canonicalize!
 def canonicalize(node): # here will rewrite the node changing the order of the factors, so they can always be the same
     print("CANONICALIZE:\n", node) # Binary(...)
+    # ------------------------------------------------------------------------------------------------
+    #                               move this to lowering() function
     ops = ["+", "*"]
     if isinstance(node, Binary) and node.op in ops:
         terms = flatten(node, node.op)  # flatten by "+" into terms
         for t in range(len(terms)):
             terms[t] = flatten(terms[t], terms[t].op) if isinstance(terms[t], Binary) else [terms[t]]
+        print("FLATTENED:\n", terms)
 
         # call IR construct
         terms = IRconstruct(terms)
-
-        print(" ** flattened:", terms)
-        terms = addtag(terms)
-        print("tagged: ", terms)
+    # ------------------------------------------------------------------------------------------------
+        #                           only this stays in canonicalize() function    
         terms = reorder(terms)
-        print("reordered: ", terms)
-        #terms = reorder(addtag(terms))
-        #print(" ** tagged and reordered:", )
+        print("REORDERED: ", terms)
         return terms
     #return node # this is for nodes that aren't Declaration(Bin). not working yet
 
 # keep flatten the way it is. The rewrite will be after, changing [] by Mul() and Add() IR nodes. This process is called
-# Future: remove IRconstruct and add Mul() and Add() nodes here already
 def flatten(node, op="*"):
     """ separates terms individually (in nodes). At first we separate by `+`, but then all commutative ops """
-    print(f"FLATTEN: {node} {op}")
+    #print(f"FLATTEN: {node} {op}")
     if isinstance(node, Binary) and op == node.op:
         left = flatten(node.left, op=node.op)
         right = flatten(node.right, op=node.op)
@@ -244,39 +246,31 @@ def flatten(node, op="*"):
     else:
         return [node]
 
-def addtag(node):
-    print("TAG EXPR:\n", node)
-    for term in node.operands:
-        for i in term.operands:
-            if isinstance(i, CudaVar):
-                if "thread" in i.base:
-                    i.tag = "thread"
-                elif "block" in i.base:
-                    i.tag = "block"
-                else:
-                    i.tag = "grid"
-            elif isinstance(i, Literal):
-                i.tag = "literal"
-    return node
+# remove?
+#def addtag(node):
+#    print("TAG EXPR:\n", node)
+#    for term in node.operands:
+#        for i in term.operands:
+#            if isinstance(i, CudaVar):
+#                if "thread" in i.base:
+#                    i.tag = "thread"
+#                elif "block" in i.base:
+#                    i.tag = "block"
+#                else:
+#                    i.tag = "grid"
+#            elif isinstance(i, Literal):
+#                i.tag = "literal"
+#    return node
 
-# add tag but directly on the node attr instead of creating a tuple. adding one more dim of complexity is bad
-#def addtag(terms):
-#    """ adds a tag on each node to represent what level that node works with (e.g. thread, block, grid, ...) """
-#    print("TAG EXPR:\n", terms)
-#    for term in range(len(terms)):
-#        if not isinstance(terms[term], list):
-#            terms[term] = [terms[term]]
-#        for sub in range(len(terms[term])):
-#            if isinstance(terms[term][sub], CudaVar):
-#                if "thread" in terms[term][sub].base: 
-#                    terms[term][sub].tag = "thread"
-#                elif "block" in terms[term][sub].base: 
-#                    terms[term][sub].tag = "block"
-#                else: 
-#                    terms[term][sub].tag = "grid"
-#            elif isinstance(terms[term][sub], Literal):
-#                terms[term][sub].tag = "literal"
-#    return terms
+def taglvl(node):
+    print("TAGLVL: ", node)
+    tag = None
+    if isinstance(node, ThreadIdx): tag = "thread"
+    elif isinstance(node, (BlockIdx, BlockDim)): tag = "block"
+    elif isinstance(node, Literal): tag = "literal"
+    else: tag = "grid"
+    print(tag)
+    return tag
 
 def reorder(node):
     print("REORDER:\n", node)
@@ -289,67 +283,28 @@ def reorder(node):
     # inner sort
     for mul in node.operands:
         print("mul:", mul)
-        mul.operands = sorted(mul.operands, key=lambda x: order.get(x.tag, 99))
-        
-        print("mul.operands:", mul.operands)
+        mul.operands = sorted(mul.operands, key=lambda x: order.get(taglvl(x), 99))
+        print("reordered mul:", mul)#.operands)
+
         # fold
         for i in mul.operands:
-            print("i: ", i)
+            #print("i: ", i)
             if isinstance(i, Literal):
-                #mul.operands = fold(mul, op="*")
                 fold(mul, op="*")
-                print(f"folded: {mul}\n{mul.operands}")
+                print(f"folded: {mul}")
                 break # jumps outside the for i in mul.operands loop
 
     # outer sort
-    node.operands = sorted(node.operands, key=lambda m: order.get(m.operands[0].tag, 99))
+    node.operands = sorted(node.operands, key=lambda m: order.get(taglvl(m.operands[0]), 99))
     return node
 
-
-#def reorder(terms):
-#    """ reorders the terms based on the tag of each node """
-#    print("REORDER ATTR:\n", terms)
-#    order = {
-#        "thread":  0,
-#        "block":   1,
-#        "grid":    2,
-#        "literal": 3,
-#    }
-#
-#    # (inner sort)
-#    for t in range(len(terms)): # terms[t] == term
-#        for i in range(len(terms[t])-1): # loop through factors of one term
-#            for j in range(1, len(terms[t])):
-#                if isinstance(terms[t], list) and len(terms[t]) > 1:
-#                    if order.get(terms[t][i].tag) > order.get(terms[t][j].tag):
-#                        tmp = terms[t][i]
-#                        terms[t][i] = terms[t][j]
-#                        terms[t][j] = tmp
-#
-#        # fold
-#        for i in terms[t]:
-#            if isinstance(i, Literal):
-#                terms[t] = fold(terms[t], op="*") # need to figure it out how to pass the 'op' to 'fold()'
-#                #print("returned fold: ", terms[t]) # debug
-#                break # added this break to fix terms[t] problem. Not sure if this is right, but it works
-#
-#    # (outer sort)
-#    for t1 in range(len(terms)-1):
-#        for t2 in range(1, len(terms)):
-#            # it's inner sorted, so first tag will always be the priority tag of that term (sublist)
-#            if order.get(terms[t1][0].tag) > order.get(terms[t2][0].tag):
-#                tmp = terms[t1]
-#                terms[t1] = terms[t2]
-#                terms[t2] = tmp
-#    #print("outer sorted terms:", terms) # debug
-#    return terms
 
 # new fold version
 def fold(terms, op="*"):
     print("FOLD: \n", terms)
     assert isinstance(terms, Mul), "Wrong object!"
     acc = 1 if op == "*" else 0
-    # keep track of the node types
+    # keep track of the node types (maybe add a unique loop, and appends on each one)
     literals = [sub for sub in terms.operands if isinstance(sub, Literal)]
     vars = [sub for sub in terms.operands if not isinstance(sub, Literal)]
     print("literals: ", literals)
@@ -370,110 +325,30 @@ def fold(terms, op="*"):
     print("RETURNED: ", terms)
     #return terms
 
-# fixing FOLD for nodes with already Mul() and Add() nodes
-#def fold(terms, op="*"):
-#    print("fold: ", terms)
-#    assert isinstance(terms, Mul), "Wrong object!"
-#    folded = terms #copy.copy(terms) #terms.copy()
-#    remove = []
-#    node = None
-#    acc = 0 if op == "+" else 1
-#    print("folded: ", folded)
-#    print("remove: ", remove)
-#    print("node: ", node)
-#    print("acc: ", acc)
-#
-#    for sub in terms.operands:
-#        print("sub: ", sub)
-#        if isinstance(sub, Literal):
-#            if sub.value == "1" and op == "*":
-#                print("1*")
-#                #folded.remove(sub)
-#                #remove.append(sub) # add this?
-#            elif sub.value == "0" and op == "*":
-#                print("0*")
-#                #pass
-#            else:
-#                print(" ** accumulate **")
-#                acc = acc*int(sub.value) if op == "*" else acc+int(sub.value)
-#                print(acc)
-#                node = sub
-#                print(node)
-#                remove.append(sub)
-#                print(remove)
-#        else:
-#            continue
-#
-#    print("folded list:", folded)
-#    print("remove list:", remove)
-#    print("node: ", node)
-#    print("acc: ", acc)
-#    if remove != []:
-#        node.value = acc
-#        print("new node value:", node)
-#        for i in remove:
-#            if i in folded:
-#                folded.remove(i)
-#        folded.append(node)
-#
-#    return folded
-
-# need to rewrite this better! Also, this could be a rewrite rule afterwards.
-#def fold(terms, op="*"):
-#    """ constant folding to optimize the METAL ast """
-#    #print("FOLD_ATTR:\n", terms) # debug
-#    assert isinstance(terms, list), "terms to be folded are not list!"
-#    folded = terms.copy()
-#    remove = []
-#    node = None
-#    acc = 0 if op == "+" else 1
-#
-#    for sub in range(len(terms)):
-#        if isinstance(terms[sub], Literal):
-#            if terms[sub].value == "1" and op == "*":
-#                folded.remove(folded[sub])
-#            elif terms[sub].value == "0" and op == "*":
-#                pass # add this to remove '* 0'
-#            else:
-#                #print(" ** accumulate **") # debug
-#                acc = acc * int(terms[sub].value) if op == "*" else acc + int(terms[sub].value)
-#                node = terms[sub]
-#                remove.append(terms[sub])
-#        else:
-#            continue
-#    
-#    if remove != []:
-#        node.value = acc
-#        for i in remove:
-#            if i in folded:
-#                folded.remove(i)
-#        folded.append(node)
-#    return folded
-
 
 # adds Mul() and Add() IR nodes. Takes the ordered canonical flattened expr and rewrite with Mul() and Add() nodes.
 def IRconstruct(expr):
     print("IR construct:\n", expr)
+    # Add() / Mul()
     for inner in range(len(expr)):
         expr[inner] = Mul(expr[inner])
     newIR = Add(expr)
-    print(newIR)
-    recognition(newIR)
-    print(newIR)
-    return newIR
-    
-# This is IR rewrite. This is the last thing to be called.
-def recognition(canonical_expr):
-    print("RECOGNITION: \n", canonical_expr)
+    print("newIR:", newIR)
+
+    # ThreadIdx() / BlockIdx() / BlockDim()
     node = None
-    if canonical_expr is not None:
-        for t in canonical_expr.operands:
+    if newIR is not None:
+        # this is bad! Rewrite this
+        for t in newIR.operands:
             for x in range(len(t.operands)):
-                if isinstance(t.operands[x], CudaVar): 
+                if isinstance(t.operands[x], CudaVar):
                     if t.operands[x].base == "threadIdx": node = ThreadIdx(dim=t.operands[x].dim)
                     elif t.operands[x].base == "blockIdx": node = BlockIdx(dim=t.operands[x].dim)
                     elif t.operands[x].base == "blockDim": node = BlockDim(dim=t.operands[x].dim)
                     t.operands[x] = node
+
+    print("AFTER newIR: ", newIR)
+    return newIR
 
 
 # adding high-level semantic nodes to the expressions
@@ -566,12 +441,20 @@ def IRrewrite(subtree):
 
 
 # OBS:
-# 1- make the IR all in the beginning. So when we flatten the node, already create a high level IR
+# 1- (DONE) make the IR all in the beginning. So when we flatten the node, already create a high level IR
 #    with Mul/Add nodes and ThreadIdx/BlockIdx/BlockDim nodes as well. Make the IR all in the beginning.
 #    This is the Lower part, where we change the AST into IR
-# 2- canonicalize. So reorder, fold. We can remove addtag, because we can return its value by checking
+# 2- (DONE) canonicalize. So reorder, fold. We can remove addtag, because we can return its value by checking
 #    its IR node.
 # 3- pattern matching. IR rewrite to higher-level semantic nodes
+# 4- create new function `lowering()` that flattens the node and return the first IR with Mul/Add and
+#    Thread/Block nodes. Like this:
+#    Add(operands=[Mul(operands=[BlockIdx(dim='x'), BlockDim(dim='x')]), 
+#                  Mul(operands=[ThreadIdx(dim='x')])])
+# 5- Then, does the canonicalization: (reorder, fold, ...)
+# 6- then, for last we rewrite the IR to get the higher level nodes.
+# 7- remove semantic_analisys() function. Make all in pattern_matcher(). pattern_matcher() will call
+#    lowering(), then canonicalize(), then IRrewrite()
 
 
 
