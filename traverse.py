@@ -69,7 +69,7 @@ class CUDAVisitor(object):
     # body of the kernel. We need to have a way to move them into Parameters when they're thread index 
     # calculations.
     def visit_Declaration(self, node, parent=None):
-        semantic_analysis(node) # when we rewrite the IR with GlobalThreadIdx() node for example, the code calls the visit_error() function, because there's no visit_GlobalThreadIdx() node for it. This could be a problem when creating METAL_ast. Fix that later!
+        node = pattern_matcher(node) # when we rewrite the IR with GlobalThreadIdx() node for example, the code calls the visit_error() function, because there's no visit_GlobalThreadIdx() node for it. This could be a problem when creating METAL_ast. Fix that later!
         memory = node.memory if node.memory else None
         type = node.type
         name = self.visit(node.name) if isnode(node.name) else node.name
@@ -179,57 +179,42 @@ def metal_map(cuda_term):
 # ---------------------------------------------------------------------------
 
 # Remove this?
-# move to new file `pattern_match.py`
-def semantic_analysis(node): 
-    """ checks the structure of the sub-tree of this node, and based on that structure generate a semantic node """
-    # 1 - canonicalize
-    # 2 - pattern matching
+def pattern_matcher(node):
     assert isinstance(node, (Declaration, Assignment, Binary, CudaVar)), "Invalid node!"
     print("-------------------------------------------------------------------------------------")
-    print("SEMANTIC ANALYSIS:\n", node) # Declaration(...) essentially
+    print("PATTERN MATCHING:\n", node)
     for child in node.children():
-        print("child:", child)
-        # canonicalize()? 
-        #child_val = pattern_matching(child)
-        #node.value = child_val
-        node.value = pattern_matching(child)
-    print("NEW NODE VALUE:\n", node)
-
-
-def pattern_matching(node): # will recursively go down until there's no more Binary node, and return a pattern for it
-    print("PATTERN MATCHING:\n", node) # Binary(...)
-    # 1-Lowering IR: (flatten, IRconstruct)
-    # 2-Canonicalize: (reorder, )
-    canon = canonicalize(node)
-    print(" ** Canonical expr:", canon) # canonicalized and folded
-    # IR rewrite
-    if canon is not None:
-        newIR = IRrewrite(canon)
-        return newIR # just checking if Declaration node value will now change to GlobalThreadIdx
-    return None
+        ir = lowering(child)
+        print(" LOWERED IR: ", ir)
+        ir = canonicalize(ir)
+        print(" CANONICALIZED IR: ", ir)
+        if ir is not None:
+            ir = IRrewrite(ir)
+        
+        node.value = ir
+        print("NEW NODE VALUE:\n", node)
+    return node
 
 # create this function?
-# def lowering(node):
-#   flatten
-#   IRconstruct
-#   return IR
-
-# OBS: maybe move the flatten/IRconstruct out of canonicalize!
-def canonicalize(node): # here will rewrite the node changing the order of the factors, so they can always be the same
-    print("CANONICALIZE:\n", node) # Binary(...)
-    # ------------------------------------------------------------------------------------------------
-    #                               move this to lowering() function
+def lowering(node):
+    print("LOWERING:\n", node)
     ops = ["+", "*"]
     if isinstance(node, Binary) and node.op in ops:
-        terms = flatten(node, node.op)  # flatten by "+" into terms
+        terms = flatten(node, node.op)
         for t in range(len(terms)):
             terms[t] = flatten(terms[t], terms[t].op) if isinstance(terms[t], Binary) else [terms[t]]
+        
         print("FLATTENED:\n", terms)
-
-        # call IR construct
         terms = IRconstruct(terms)
-    # ------------------------------------------------------------------------------------------------
-        #                           only this stays in canonicalize() function    
+        print("IR CONSTRUCTED:\n", terms)
+        return terms
+    return node
+
+# OBS: moved the flatten/IRconstruct out of canonicalize to lowering()!
+def canonicalize(terms): # here will rewrite the node changing the order of the factors, so they can always be the same
+    print("CANONICALIZE:\n", terms) # Add(...)
+ 
+    if isinstance(terms, Add):
         terms = reorder(terms)
         print("REORDERED: ", terms)
         return terms
@@ -238,7 +223,6 @@ def canonicalize(node): # here will rewrite the node changing the order of the f
 # keep flatten the way it is. The rewrite will be after, changing [] by Mul() and Add() IR nodes. This process is called
 def flatten(node, op="*"):
     """ separates terms individually (in nodes). At first we separate by `+`, but then all commutative ops """
-    #print(f"FLATTEN: {node} {op}")
     if isinstance(node, Binary) and op == node.op:
         left = flatten(node.left, op=node.op)
         right = flatten(node.right, op=node.op)
@@ -246,30 +230,14 @@ def flatten(node, op="*"):
     else:
         return [node]
 
-# remove?
-#def addtag(node):
-#    print("TAG EXPR:\n", node)
-#    for term in node.operands:
-#        for i in term.operands:
-#            if isinstance(i, CudaVar):
-#                if "thread" in i.base:
-#                    i.tag = "thread"
-#                elif "block" in i.base:
-#                    i.tag = "block"
-#                else:
-#                    i.tag = "grid"
-#            elif isinstance(i, Literal):
-#                i.tag = "literal"
-#    return node
-
 def taglvl(node):
-    print("TAGLVL: ", node)
     tag = None
     if isinstance(node, ThreadIdx): tag = "thread"
     elif isinstance(node, (BlockIdx, BlockDim)): tag = "block"
     elif isinstance(node, Literal): tag = "literal"
     else: tag = "grid"
-    print(tag)
+    print("TAGLVL: ", node, tag)
+    #print(tag)
     return tag
 
 def reorder(node):
@@ -311,16 +279,16 @@ def fold(terms, op="*"):
     print("vars: ", vars)
 
     for lit in literals:
-        print("lit:", lit)
+        #print("lit:", lit)
         acc = acc*int(lit.value) if op == "*" else acc+int(lit.value)
         print("acc:", acc)
 
-    if acc == 1:
+    if acc == 1 and op=="*":
         terms.operands = vars
     elif acc == 0:
         pass
     else:
-        terms.operands = vars + [Literal(value=acc, tag="literal")]
+        terms.operands = vars + [Literal(value=acc)]
 
     print("RETURNED: ", terms)
     #return terms
@@ -332,14 +300,14 @@ def IRconstruct(expr):
     # Add() / Mul()
     for inner in range(len(expr)):
         expr[inner] = Mul(expr[inner])
-    newIR = Add(expr)
-    print("newIR:", newIR)
+    ir = Add(expr)
+    print("newIR:", ir)
 
     # ThreadIdx() / BlockIdx() / BlockDim()
     node = None
-    if newIR is not None:
+    if ir is not None:
         # this is bad! Rewrite this
-        for t in newIR.operands:
+        for t in ir.operands:
             for x in range(len(t.operands)):
                 if isinstance(t.operands[x], CudaVar):
                     if t.operands[x].base == "threadIdx": node = ThreadIdx(dim=t.operands[x].dim)
@@ -347,8 +315,8 @@ def IRconstruct(expr):
                     elif t.operands[x].base == "blockDim": node = BlockDim(dim=t.operands[x].dim)
                     t.operands[x] = node
 
-    print("AFTER newIR: ", newIR)
-    return newIR
+    print("AFTER newIR: ", ir)
+    return ir
 
 
 # adding high-level semantic nodes to the expressions
@@ -447,27 +415,16 @@ def IRrewrite(subtree):
 # 2- (DONE) canonicalize. So reorder, fold. We can remove addtag, because we can return its value by checking
 #    its IR node.
 # 3- pattern matching. IR rewrite to higher-level semantic nodes
-# 4- create new function `lowering()` that flattens the node and return the first IR with Mul/Add and
+# 4- (DONE) create new function `lowering()` that flattens the node and return the first IR with Mul/Add and
 #    Thread/Block nodes. Like this:
 #    Add(operands=[Mul(operands=[BlockIdx(dim='x'), BlockDim(dim='x')]), 
 #                  Mul(operands=[ThreadIdx(dim='x')])])
-# 5- Then, does the canonicalization: (reorder, fold, ...)
-# 6- then, for last we rewrite the IR to get the higher level nodes.
-# 7- remove semantic_analisys() function. Make all in pattern_matcher(). pattern_matcher() will call
+# 5- (DONE) Then, does the canonicalization: (reorder, fold, ...)
+# 6- (DONE) then, for last we rewrite the IR to get the higher level nodes.
+# 7- (DONE) remove semantic_analisys() function. Make all in pattern_matcher(). pattern_matcher() will call
 #    lowering(), then canonicalize(), then IRrewrite()
 
-
-
-
-
 # TODO:
-# right approach:
-# 1- create atomic semantic nodes based on the list canonicalized. So ThreadIdx(dim=x), BlockIdx(dim=x), ...
-#    replace the nodes on that list for these atomic ones. Even if the sublist means something, only replace to atomic nodes first.
-# 2- pattern/rewrite (composition): rule engine to match the atomic nodes configuration into a semantic node:
-#    so like: [ThreadIdx(dim=x), [BlockIdx(dim=x), BlockDim(dim=x)]] into -> GlobalThreadIdx(dim=x)
-# 3- These composite semantic nodes will be part of the new METAL ast. Then lower the metal ast and codegen
-#
 # optimizations:
 # - improve `fold` function
 # - algebraic simplification

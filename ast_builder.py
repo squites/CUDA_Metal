@@ -94,7 +94,7 @@ class Binary(Expression):
 @dataclass
 class Literal(Expression): # constant
     value: Union[int, float]
-    tag: str = None # remove this 
+    #tag: str = None # remove this 
     # parent: Node
 
 @dataclass
@@ -112,7 +112,7 @@ class Array(Expression):
 class CudaVar:
     base: str # blockIdx, threadIdx, ...
     dim: str # x, y, z
-    tag: str = None # will populate this tag attr later on
+    #tag: str = None # will populate this tag attr later on
 
 
 class SemanticNode:
@@ -141,9 +141,6 @@ class BlockDim(SemanticNode):
 @dataclass
 class GlobalThreadIdx(SemanticNode):
     dim: str # char
-
-
-
 
 # Transformer class
 class CUDATransformer(Transformer):
