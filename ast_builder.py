@@ -313,7 +313,8 @@ class METAL_Parameter(METAL_Ast):
     memory_type: str #= None
     type: str
     name: str
-    buffer: Optional[str] # for some parameters we use this buffer
+    attr: Optional[str] # Metal params have `attributes`. This is added for GlobalThreadIdx be in parameters.
+    buffer: Optional[str] # use buffer only for DATA pointers (e.g.: `float* a`). Thread indices don't use buffers
     init: Optional[Union[str, int]] = None
 
 @dataclass
@@ -394,7 +395,4 @@ class METAL_GlobalThreadId(METAL_Ast):
         raise NotImplementedError
 
 
-"""
-class CUDAAtomic:
-
-"""
+#class CUDAAtomic:

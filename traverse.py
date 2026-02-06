@@ -7,12 +7,13 @@ class CUDAVisitor(object):
         #self.buffer_idx = -1
         self.kernel_params = []
         self.body = []
-        self.cudavarslist = [] # remove
 
     # passing the node parent
     def visit(self, node, parent=None, idx=0):
-        method = "visit_" + node.__class__.__name__
-        visitor = getattr(self, method, self.visit_error)
+        method = "visit_" + node.__class__.__name__ # start: visit_CUDA_Program()
+        #print("method:", method)
+        visitor = getattr(self, method, self.visit_error) # visitor = self.visit_CUDA_Program()
+        #print("visitor: ", visitor)
         if str(method) == "visit_Parameter":
             return visitor(node, idx)
         if parent is not None:
@@ -51,7 +52,7 @@ class CUDAVisitor(object):
         else:
             mem_type = ""
             buffer = None
-        return METAL_Parameter(memory_type=mem_type, type=node.type, name=node.name, buffer=buffer)
+        return METAL_Parameter(memory_type=mem_type, type=node.type, name=node.name, attr=None, buffer=buffer, init=None)
 
     def visit_Body(self, node):
         if node.children():
@@ -68,16 +69,27 @@ class CUDAVisitor(object):
     # obs: for tid and gid, we are generating the right Parameter() node, but they are still inside the 
     # body of the kernel. We need to have a way to move them into Parameters when they're thread index 
     # calculations.
+    # 
     def visit_Declaration(self, node, parent=None):
+        print("\n\nVISIT_DECLARATION:\n", node)
         node = pattern_matcher(node) # when we rewrite the IR with GlobalThreadIdx() node for example, the code calls the visit_error() function, because there's no visit_GlobalThreadIdx() node for it. This could be a problem when creating METAL_ast. Fix that later!
         memory = node.memory if node.memory else None
         type = node.type
+        print("NODE: ", node)
+        print("MEMORY: ", memory)
         name = self.visit(node.name) if isnode(node.name) else node.name
+        print("NAME: ", name)
+
+        if isinstance(node.value, GlobalThreadIdx):
+            param = METAL_Parameter(memory_type=None, type="uint", name=node.name, attr="thread_position_in_grid", buffer=None, init=None)
+            self.kernel_params.append(param)
+            return None
+
         if node.children():
             value = [] # = Expression(Binary, Literal, Variable, Array)
             for child in node.children():
+                print("child: ", child)
                 # call function to map the vars
-                node = METAL_Parameter(memory_type=None, type="uint3", name="blockidx", buffer=None, init=None)
                 child_node = self.visit(child, parent=node) # this is equal as: "return METAL_Declaration(type, name, value)"
                 value.append(child_node)
 
@@ -87,7 +99,6 @@ class CUDAVisitor(object):
                 return METAL_Declaration(metal_map(memory), type, name)
         else:
             return METAL_Declaration(metal_map(memory), type, name, value=node.value)
-        
 
     def visit_Assignment(self, node, parent=None):
         name = self.visit(node.name, parent=node) if isnode(node.name) else node.name
@@ -140,7 +151,6 @@ class CUDAVisitor(object):
 
     def visit_error(self, node, attr): 
         print(f"The node {node} has no attribute named {attr}!")
-
 
 # helpers (move this to another file)
 def isnode(node):
@@ -199,6 +209,7 @@ def pattern_matcher(node):
 def lowering(node):
     print("LOWERING:\n", node)
     ops = ["+", "*"]
+    terms = None
     if isinstance(node, Binary) and node.op in ops:
         terms = flatten(node, node.op)
         for t in range(len(terms)):
@@ -206,19 +217,31 @@ def lowering(node):
         
         print("FLATTENED:\n", terms)
         terms = IRconstruct(terms)
-        print("IR CONSTRUCTED:\n", terms)
-        return terms
-    return node
+        #return terms
+
+    # added for %, /, cases
+    elif isinstance(node, Binary):
+        # lower children
+        left = lowering(node.left) if isinstance(node.left, (Binary, CudaVar)) else node.left
+        right = lowering(node.right) if isinstance(node.right, (Binary, CudaVar)) else node.right
+        return Binary(op=node.op, left=left, right=right)
+
+    elif isinstance(node, CudaVar):
+        terms = IRconstruct(node)
+
+    else:
+        terms = node
+    print("IR CONSTRUCTED:\n", terms)
+    return terms    
 
 # OBS: moved the flatten/IRconstruct out of canonicalize to lowering()!
 def canonicalize(terms): # here will rewrite the node changing the order of the factors, so they can always be the same
     print("CANONICALIZE:\n", terms) # Add(...)
- 
     if isinstance(terms, Add):
         terms = reorder(terms)
         print("REORDERED: ", terms)
         return terms
-    #return node # this is for nodes that aren't Declaration(Bin). not working yet
+    return terms # this is for nodes that aren't Declaration(Bin). not working yet
 
 # keep flatten the way it is. The rewrite will be after, changing [] by Mul() and Add() IR nodes. This process is called
 def flatten(node, op="*"):
@@ -237,7 +260,7 @@ def taglvl(node):
     elif isinstance(node, Literal): tag = "literal"
     else: tag = "grid"
     print("TAGLVL: ", node, tag)
-    #print(tag)
+
     return tag
 
 def reorder(node):
@@ -266,7 +289,6 @@ def reorder(node):
     node.operands = sorted(node.operands, key=lambda m: order.get(taglvl(m.operands[0]), 99))
     return node
 
-
 # new fold version
 def fold(terms, op="*"):
     print("FOLD: \n", terms)
@@ -294,29 +316,27 @@ def fold(terms, op="*"):
     #return terms
 
 
+def lower_cuda(node):
+    if isinstance(node, CudaVar):
+        if node.base == "threadIdx": return ThreadIdx(dim=node.dim) 
+        elif node.base == "blockIdx": return BlockIdx(dim=node.dim)
+        elif node.base == "blockDim": return BlockDim(dim=node.dim)
+    return node
+
 # adds Mul() and Add() IR nodes. Takes the ordered canonical flattened expr and rewrite with Mul() and Add() nodes.
 def IRconstruct(expr):
-    print("IR construct:\n", expr)
-    # Add() / Mul()
-    for inner in range(len(expr)):
-        expr[inner] = Mul(expr[inner])
-    ir = Add(expr)
-    print("newIR:", ir)
+    # single node
+    if isinstance(expr, CudaVar):
+        return lower_cuda(expr)
 
-    # ThreadIdx() / BlockIdx() / BlockDim()
-    node = None
-    if ir is not None:
-        # this is bad! Rewrite this
-        for t in ir.operands:
-            for x in range(len(t.operands)):
-                if isinstance(t.operands[x], CudaVar):
-                    if t.operands[x].base == "threadIdx": node = ThreadIdx(dim=t.operands[x].dim)
-                    elif t.operands[x].base == "blockIdx": node = BlockIdx(dim=t.operands[x].dim)
-                    elif t.operands[x].base == "blockDim": node = BlockDim(dim=t.operands[x].dim)
-                    t.operands[x] = node
+    # flattend list
+    if isinstance(expr, list):
+        for inner in range(len(expr)):
+            expr[inner] = [lower_cuda(x) for x in expr[inner]]
+            expr[inner] = Mul(expr[inner])
+        return Add(expr)
 
-    print("AFTER newIR: ", ir)
-    return ir
+    return expr
 
 
 # adding high-level semantic nodes to the expressions
