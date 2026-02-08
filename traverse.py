@@ -11,9 +11,7 @@ class CUDAVisitor(object):
     # passing the node parent
     def visit(self, node, parent=None, idx=0):
         method = "visit_" + node.__class__.__name__ # start: visit_CUDA_Program()
-        #print("method:", method)
         visitor = getattr(self, method, self.visit_error) # visitor = self.visit_CUDA_Program()
-        #print("visitor: ", visitor)
         if str(method) == "visit_Parameter":
             return visitor(node, idx)
         if parent is not None:
@@ -46,11 +44,11 @@ class CUDAVisitor(object):
             return METAL_Kernel(qualifier, type, name, [], [])
 
     def visit_Parameter(self, node, buffer_idx=0):
-        mem_type = metal_map(node.mem_type)
+        mem_type = metal_map(node.mem_type) # mem_type="device" when there's data pointer to GPU. So it's data stored on global memory, we need device 
         if node.mem_type == "device" and node.type == "int*" or node.type == "float*":
-            buffer = f"[[buffer({buffer_idx})]]"
+            buffer = buffer_idx
         else:
-            mem_type = ""
+            mem_type = None 
             buffer = None
         return METAL_Parameter(memory_type=mem_type, type=node.type, name=node.name, attr=None, buffer=buffer, init=None)
 
@@ -60,38 +58,37 @@ class CUDAVisitor(object):
             for child in node.children():
                 # for each child, will return the respective METAL node. Ex: visit(child) = METAL_Declaration(type, name, value)
                 child_node = self.visit(child) # visit(Declaration), visit(Assignment)
+                print("child node: ", child_node)
                 # check if its Parameter() node for tid and gid
-                statements.append(child_node) # this right? It is if child_node is being a METAL node returned by visit methods. Not right if child_node is CUDA node
+                if child_node is not None: # this filters in cases like GlobalThreadIdx, because they're added to params, so there's no need to add them in body
+                    statements.append(child_node) 
             return METAL_Body(statements)
         else:
             return METAL_Body(node.statement)
 
-    # obs: for tid and gid, we are generating the right Parameter() node, but they are still inside the 
-    # body of the kernel. We need to have a way to move them into Parameters when they're thread index 
-    # calculations.
-    # 
     def visit_Declaration(self, node, parent=None):
         print("\n\nVISIT_DECLARATION:\n", node)
         node = pattern_matcher(node) # when we rewrite the IR with GlobalThreadIdx() node for example, the code calls the visit_error() function, because there's no visit_GlobalThreadIdx() node for it. This could be a problem when creating METAL_ast. Fix that later!
         memory = node.memory if node.memory else None
         type = node.type
-        print("NODE: ", node)
-        print("MEMORY: ", memory)
         name = self.visit(node.name) if isnode(node.name) else node.name
-        print("NAME: ", name)
 
         if isinstance(node.value, GlobalThreadIdx):
             param = METAL_Parameter(memory_type=None, type="uint", name=node.name, attr="thread_position_in_grid", buffer=None, init=None)
             self.kernel_params.append(param)
-            return None
+            # when returning None, we're adding None nodes into the kernel body, and they go to the METAL AST. 
+            # we add the node as a METAL_Parameter to the parameters, but we return None. And that triggers the
+            # visit_Error() function. I think this is wrong and shouldn't happen!!!!
+            return None # dont return node because already added to kernel_params
 
         if node.children():
             value = [] # = Expression(Binary, Literal, Variable, Array)
             for child in node.children():
                 print("child: ", child)
-                # call function to map the vars
-                child_node = self.visit(child, parent=node) # this is equal as: "return METAL_Declaration(type, name, value)"
+                child_node = self.visit(child, parent=node) # this makes the METAL AST node to have METAL_Binary instead of Binary, for Declarations that have Binary nodes as values for example.
+                print("child_node: ", child_node)
                 value.append(child_node)
+            print("values: ", value)
 
             if value != None:
                 return METAL_Declaration(metal_map(memory), type, name, value)
@@ -149,13 +146,42 @@ class CUDAVisitor(object):
         metal_var = metal_map(node.base)
         return METAL_Var(metal_var)
 
+    # visit IR nodes. OBS: Metal doesn't have built-ins so all cudavar must be passed as argument to metal kernel
+    def visit_ThreadIdx(self, node, parent=None):
+        name = "tidx"
+        if not check_param(self.kernel_params, "thread_index_in_threadgroup"):
+            param = METAL_Parameter(memory_type=None, type="uint", name=name, attr="thread_index_in_threadgroup", buffer=None, init=None)
+            self.kernel_params.append(param)
+        return METAL_Variable(name=f"{name}.{node.dim}") # it was: name=f"threadIdx.{node.dim}"
+
+    def visit_BlockIdx(self, node, parent=None):
+        name = "tgpos"
+        if not check_param(self.kernel_params, "threadgroup_position_in_grid"):
+            param = METAL_Parameter(memory_type=None, type="uint", name=name, attr="threadgroup_position_in_grid", buffer=None, init=None)
+            self.kernel_params.append(param)
+        return METAL_Variable(name=f"{name}.{node.dim}") # it was: name=f"blockIdx.{node.dim}"
+    
+    def visit_BlockDim(self, node, parent=None):
+        name = "tptg"
+        if not check_param(self.kernel_params, "threads_per_threadgroup"):
+            param = METAL_Parameter(memory_type=None, type="uint", name=name, attr=f"threads_per_threadgroup.{node.dim}", buffer=None, init=None)
+            self.kernel_params.append(param)
+        return METAL_Variable(name=f"{name}.{node.dim}") #it was: f"blockDim.{node.dim}"
+    
+    # error call function
     def visit_error(self, node, attr): 
         print(f"The node {node} has no attribute named {attr}!")
 
+
+def check_param(params, attr):
+    for p in params:
+        if p.attr == attr:
+            return True
+    return False
 # helpers (move this to another file)
 def isnode(node):
     """ Check if the node that we're visiting has any node as value for any attribute """
-    return isinstance(node, (Binary, Literal, Variable, Array, CudaVar, METAL_Binary, METAL_Literal, METAL_Variable, METAL_Array, METAL_Var))
+    return isinstance(node, (Binary, Literal, Variable, Array, CudaVar, ThreadIdx, METAL_Binary, METAL_Literal, METAL_Variable, METAL_Array, METAL_Var))
 
 # i guess i can remove stuff from here, like: "blockIdx.x * blockDim.x + threadIdx.x": metal_term = "[[thread_position_in_grid]]" 
 def metal_map(cuda_term):
@@ -175,20 +201,12 @@ def metal_map(cuda_term):
         case "__syncthreads()": metal_term = "threadgroud_barrier()"
     return metal_term
 
-# remove?
-#def get_param_idx(kernel_params, node):
-#    for p in kernel_params:
-#        if node.type == p.type and node.name == p.name:
-#            return int(p)
-#    return 0
-
 # ---------------------------------------------------------------------------
 #
 # THIS FILE SHOULD END HERE!!!! EVERYTHING BELOW MUST BE MOVED SOMEWHERE ELSE
 #
 # ---------------------------------------------------------------------------
 
-# Remove this?
 def pattern_matcher(node):
     assert isinstance(node, (Declaration, Assignment, Binary, CudaVar)), "Invalid node!"
     print("-------------------------------------------------------------------------------------")
@@ -301,7 +319,6 @@ def fold(terms, op="*"):
     print("vars: ", vars)
 
     for lit in literals:
-        #print("lit:", lit)
         acc = acc*int(lit.value) if op == "*" else acc+int(lit.value)
         print("acc:", acc)
 
@@ -314,7 +331,6 @@ def fold(terms, op="*"):
 
     print("RETURNED: ", terms)
     #return terms
-
 
 def lower_cuda(node):
     if isinstance(node, CudaVar):
@@ -429,6 +445,10 @@ def IRrewrite(subtree):
 
 
 # OBS:
+# VERY IMPORTANT! In metal there are no built-in variables like in cuda. So we ALWAYS have to pass them as arguments
+# to the kernel. Even when using a declaration like: `int a = threadIdx.x / BLOCKSZ;` In metal we need to pass as arg:
+# `(uint tx [[thread_index_in_threadgroup]])` and then inside the kernel we do: `int a = tx / BLOCKSZ`
+#
 # 1- (DONE) make the IR all in the beginning. So when we flatten the node, already create a high level IR
 #    with Mul/Add nodes and ThreadIdx/BlockIdx/BlockDim nodes as well. Make the IR all in the beginning.
 #    This is the Lower part, where we change the AST into IR
@@ -443,7 +463,8 @@ def IRrewrite(subtree):
 # 6- (DONE) then, for last we rewrite the IR to get the higher level nodes.
 # 7- (DONE) remove semantic_analisys() function. Make all in pattern_matcher(). pattern_matcher() will call
 #    lowering(), then canonicalize(), then IRrewrite()
-
+# 8- Add visit functions for the new IR nodes, such as visit_ThreadIdx(), visit_BlockIdx(), ... 
+#
 # TODO:
 # optimizations:
 # - improve `fold` function

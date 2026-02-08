@@ -310,11 +310,11 @@ class METAL_Kernel(METAL_Ast):
 
 @dataclass
 class METAL_Parameter(METAL_Ast):
-    memory_type: str #= None
+    memory_type: Optional[str] #= None
     type: str
     name: str
     attr: Optional[str] # Metal params have `attributes`. This is added for GlobalThreadIdx be in parameters.
-    buffer: Optional[str] # use buffer only for DATA pointers (e.g.: `float* a`). Thread indices don't use buffers
+    buffer: Optional[int] # use buffer only for DATA pointers (e.g.: `float* a`). Thread indices don't use buffers
     init: Optional[Union[str, int]] = None
 
 @dataclass
