@@ -17,13 +17,18 @@ cuda_grammar = r"""
              | assignment  ";"
              | if_statement 
              | for_statement
+             | syncthreads ";"
              #| while_statement
 
     if_statement: "if (" expression ") {" statement* "}" #("else {" statement* "}")?
     for_statement: "for (" (declaration | assignment) "; " expression "; " assignment ") {" statement* "}"
 
+    # syncthread
+    syncthreads: "__syncthreads()"
+
+
     # statements
-    declaration: type identifier ("=" expression)? # var declaration 
+    declaration: memory_type? type (identifier|array_index) ("=" expression)? # var declaration 
     assignment: (array_index | identifier) "=" expression
     expression: term ((term_ops | logical_ops) term)*
 
@@ -44,13 +49,12 @@ cuda_grammar = r"""
     identifier: NAME
     array_index: identifier ("[" expression "]") # a[i+1]
     memory_type: MEM_TYPE
-    #constant: CONST
     
     # types and ops
     QUALIFIER: "__global__" | "__device__" | "__host__"
-    TYPE: /int\*?|float\*?|void\*?/ 
+    TYPE: /(int|float|void)\*?/#/int\*/ | /float\*/ | /void\*/ | int | float | void
     TERM_OPS: "+" | "-"
-    FACTOR_OPS: "*" | "/"
+    FACTOR_OPS: "*" | "/" | "%"
     LOGICAL_OPS: "==" | ">" | "<" | ">=" | "<=" | "!=" | "&&"
     cuda_var: BASE_VAR "." CUDA_DIM
     BASE_VAR: ("blockIdx" | "blockDim" | "threadIdx")

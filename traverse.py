@@ -68,14 +68,13 @@ class CUDAVisitor(object):
             return METAL_Body(node.statement)
 
     def visit_Declaration(self, node, parent=None):
-        print("\n\nVISIT_DECLARATION:\n", node)
         node = pattern_matcher(node) # when we rewrite the IR with GlobalThreadIdx() node for example, the code calls the visit_error() function, because there's no visit_GlobalThreadIdx() node for it. This could be a problem when creating METAL_ast. Fix that later!
         memory = node.memory if node.memory else None
         type = node.type
         name = self.visit(node.name) if isnode(node.name) else node.name
 
         if isinstance(node.value, GlobalThreadIdx):
-            param = METAL_Parameter(memory_type=None, type="uint", name=node.name, attr="thread_position_in_grid", buffer=None, init=None)
+            param = METAL_Parameter(memory_type=None, type="uint3", name=node.name, attr="thread_position_in_grid", buffer=None, init=None)
             if not check_param(self.kernel_params, param.attr): # to not add repetitive vars on params
                 self.kernel_params.append(param)
             return None # dont return node because already added to kernel_params
@@ -83,11 +82,8 @@ class CUDAVisitor(object):
         if node.children():
             value = [] # = Expression(Binary, Literal, Variable, Array)
             for child in node.children():
-                print("child: ", child)
                 child_node = self.visit(child, parent=node) # this makes the METAL AST node to have METAL_Binary instead of Binary, for Declarations that have Binary nodes as values for example.
-                print("child_node: ", child_node)
                 value.append(child_node)
-            print("values: ", value)
 
             if value != None:
                 return METAL_Declaration(metal_map(memory), type, name, value)
@@ -97,8 +93,14 @@ class CUDAVisitor(object):
             return METAL_Declaration(metal_map(memory), type, name, value=node.value)
 
     def visit_Assignment(self, node, parent=None):
-        name = self.visit(node.name, parent=node) if isnode(node.name) else node.name
-        val = self.visit(node.value, parent=node) if isnode(node.value) else node.value
+        name = self.visit(node.name, parent=node) if isnode(node.name) else METAL_Variable(node.name)
+        if isnode(node.value):
+            val = self.visit(node.value, parent=node)
+        elif node.value.isdigit():
+            val = METAL_Literal(node.value)
+        else:
+            val = METAL_Variable(node.value)
+        
         return METAL_Assignment(name, val)
 
     def visit_IfStatement(self, node, parent=None):
@@ -119,25 +121,20 @@ class CUDAVisitor(object):
         for child in node.children()[0]:
             child_node = self.visit(child, parent=node)
             stmts.append(child_node)
-        return METAL_ForStatement(init=init, condition=cond, increment=incr, forBody=stmts, parent=parent)
+        
+        return METAL_ForStatement(init=init, condition=cond, increment=incr, forBody=stmts)
+
+    def visit_SyncThreads(self, node, parent=None):
+        return METAL_Barrier()
 
     def visit_Binary(self, node, parent=None):
-        #self.parent = node if parent is not None else None
-        #metal_op = node.op
-        #left = self.visit(node.left, parent=node) if isnode(node.left) else str(node.left)
-        #right = self.visit(node.right, parent=node) if isnode(node.right) else str(node.right)
         metal_op = node.op
-        print("node.left: ", node.left)
         if isnode(node.left):
-            print("ISNODE")
             left = self.visit(node.left, parent=node)
         elif node.left.isdigit():
-            print("ISDIGIT")
             left = METAL_Literal(node.left)
         else:
-            print("ISVAR")
             left = METAL_Variable(node.left)
-        print("LEFT:", left)
 
         if isnode(node.right):
             right = self.visit(node.right, parent=node)
@@ -149,11 +146,9 @@ class CUDAVisitor(object):
         return  METAL_Binary(metal_op, left, right)
 
     def visit_Literal(self, node, parent=None):
-        value = node.value
-        return METAL_Literal(value=value)
+        return METAL_Literal(node.value)
 
     def visit_Variable(self, node, parent=None):
-        #name = node.name
         return METAL_Variable(node.name)
 
     def visit_Array(self, node, parent=None):
@@ -181,23 +176,23 @@ class CUDAVisitor(object):
         return res
     
     def visit_ThreadIdx(self, node, parent=None):
-        name = "tidx"
+        name = "tid"
         if not check_param(self.kernel_params, "thread_index_in_threadgroup"):
-            param = METAL_Parameter(memory_type=None, type="uint", name=name, attr="thread_index_in_threadgroup", buffer=None, init=None)
+            param = METAL_Parameter(memory_type=None, type="uint3", name=name, attr="thread_index_in_threadgroup", buffer=None, init=None)
             self.kernel_params.append(param)
         return METAL_Variable(name=f"{name}.{node.dim}") # it was: name=f"threadIdx.{node.dim}"
 
     def visit_BlockIdx(self, node, parent=None):
-        name = "tgpos"
+        name = "bid"
         if not check_param(self.kernel_params, "threadgroup_position_in_grid"):
-            param = METAL_Parameter(memory_type=None, type="uint", name=name, attr="threadgroup_position_in_grid", buffer=None, init=None)
+            param = METAL_Parameter(memory_type=None, type="uint3", name=name, attr="threadgroup_position_in_grid", buffer=None, init=None)
             self.kernel_params.append(param)
         return METAL_Variable(name=f"{name}.{node.dim}") # it was: name=f"blockIdx.{node.dim}"
     
     def visit_BlockDim(self, node, parent=None):
-        name = "tptg"
+        name = "bdim"
         if not check_param(self.kernel_params, "threads_per_threadgroup"):
-            param = METAL_Parameter(memory_type=None, type="uint", name=name, attr=f"threads_per_threadgroup", buffer=None, init=None)
+            param = METAL_Parameter(memory_type=None, type="uint3", name=name, attr=f"threads_per_threadgroup", buffer=None, init=None)
             self.kernel_params.append(param)
         return METAL_Variable(name=f"{name}.{node.dim}") #it was: f"blockDim.{node.dim}"
     
@@ -480,22 +475,6 @@ def IRrewrite(subtree):
 # VERY IMPORTANT! In metal there are no built-in variables like in cuda. So we ALWAYS have to pass them as arguments
 # to the kernel. Even when using a declaration like: `int a = threadIdx.x / BLOCKSZ;` In metal we need to pass as arg:
 # `(uint tx [[thread_index_in_threadgroup]])` and then inside the kernel we do: `int a = tx / BLOCKSZ`
-#
-#
-# BUGS:
-# 1- (DONE!) When declarating a new variable like this: `int tCol = tidx.x`, we need to create a Declaration node
-# where tCol is now a METAL_Variable. So the node should be: METAL_Declaration(..., name=METAL_Variable('tCol))
-# e.g.: METAL_Declaration(memory=None, type='int', name='tCol', value=[METAL_Variable(name='tidx.x')])
-#               ...
-# And on later uses of that variable in the code, should be referenced as METAL_Variable, and not just the string 
-# name.
-# (wrong!)      
-#   METAL_Assignment(name=METAL_Array(name='data0_s', index=METAL_Binary(op='+', 
-#                               left=METAL_Binary(op='*', left='tRow', right='CHUNKSIZE'), right='tCol')...
-# (right!)
-#   METAL_Assignment(name=METAL_Array(name='data0_s', index=METAL_Binary(op='+', 
-#                               left=METAL_Binary(op='*', left=METAL_Variable('tRow'), right='CHUNKSIZE'), 
-#                               right=METAL_Variable('tCol')).
 #
 # TODO:
 # optimizations:

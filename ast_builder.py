@@ -80,6 +80,10 @@ class ForStatement(Statement):
     def children(self):
         return [self.forBody]
 
+@dataclass
+class SyncThreads(Statement):
+    pass
+
 # base class for expressions. Base classes define a common type
 class Expression(CUDA_Ast):
     pass
@@ -113,7 +117,6 @@ class CudaVar:
     base: str # blockIdx, threadIdx, ...
     dim: str # x, y, z
     #tag: str = None # will populate this tag attr later on
-
 
 class SemanticNode:
     pass
@@ -209,22 +212,19 @@ class CUDATransformer(Transformer):
         return Assignment(name=name, value=value)
         
     def if_statement(self, items):
-        # items[0]: if (x < M && y < N) {
-        # items[1]:     float tmp = 0.0;
-        # items[2:      for (int i = 0; i < K; i=i+1) { tmp = tmp + (data0[x * K + i] * data1[i * N + y]);}
-        # items[3]:     data2[x * N + y] = tmp;
-        condition = items[0]
+        condition = items[0] #items[0]: if (x < M && y < N) {
         if_body = items[1:]
         return IfStatement(condition=condition, if_body=if_body)
 
-    # obs: should we treat parameter variables as Parameter() or Variable() node. Because here the condition 
-    # is based on a Parameter, but we generate as a Variable node
     def for_statement(self, items):
         init = items[0]
         cond = items[1]
         incr = items[2]
         forBody = items[3:]
         return ForStatement(init=init, condition=cond, increment=incr, forBody=forBody)
+
+    def syncthreads(self, items):
+        return SyncThreads()
 
     def expression(self, items):
         if len(items) == 1: # single term
@@ -357,10 +357,14 @@ class METAL_ForStatement(METAL_Statement):
     condition: "METAL_Expression"
     increment: METAL_Assignment
     forBody: List[METAL_Statement]
-    parent: Union[METAL_Statement, "METAL_Expression"]
+    parent: Optional[Union[METAL_Statement, "METAL_Expression"]] = None
 
     def children(self):
         return [*self.forBody]
+
+@dataclass
+class METAL_Barrier(METAL_Statement):
+    mem_flag: str = "mem_threadgroup" # 'mem_device', 'mem_none'
 
 # base class for expressions
 class METAL_Expression(METAL_Ast):
