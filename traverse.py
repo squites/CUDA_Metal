@@ -1,5 +1,6 @@
-from ast_builder import METAL_Kernel, METAL_Parameter, METAL_Body, METAL_Var, METAL_Declaration, METAL_Assignment, METAL_IfStatement, METAL_ForStatement, METAL_Binary, METAL_Literal, METAL_Variable, METAL_Array, METAL_Program
-from ast_builder import Parameter, Declaration, Assignment, Binary, Literal, CudaVar, Variable, Array, ThreadIdx, BlockIdx, BlockDim, GlobalThreadIdx, Mul, Add
+#from ast_builder import METAL_Kernel, METAL_Parameter, METAL_Body, METAL_Var, METAL_Declaration, METAL_Assignment, METAL_IfStatement, METAL_ForStatement, METAL_Binary, METAL_Literal, METAL_Variable, METAL_Array, METAL_Program
+#from ast_builder import Parameter, Declaration, Assignment, Binary, Literal, CudaVar, Variable, Array, ThreadIdx, BlockIdx, BlockDim, GlobalThreadIdx, Mul, Add
+from ast_builder import *
 
 class CUDAVisitor(object):
     """ Traverse the ast nodes """
@@ -75,10 +76,8 @@ class CUDAVisitor(object):
 
         if isinstance(node.value, GlobalThreadIdx):
             param = METAL_Parameter(memory_type=None, type="uint", name=node.name, attr="thread_position_in_grid", buffer=None, init=None)
-            self.kernel_params.append(param)
-            # when returning None, we're adding None nodes into the kernel body, and they go to the METAL AST. 
-            # we add the node as a METAL_Parameter to the parameters, but we return None. And that triggers the
-            # visit_Error() function. I think this is wrong and shouldn't happen!!!!
+            if not check_param(self.kernel_params, param.attr): # to not add repetitive vars on params
+                self.kernel_params.append(param)
             return None # dont return node because already added to kernel_params
 
         if node.children():
@@ -123,10 +122,30 @@ class CUDAVisitor(object):
         return METAL_ForStatement(init=init, condition=cond, increment=incr, forBody=stmts, parent=parent)
 
     def visit_Binary(self, node, parent=None):
-        self.parent = node if parent is not None else None
+        #self.parent = node if parent is not None else None
+        #metal_op = node.op
+        #left = self.visit(node.left, parent=node) if isnode(node.left) else str(node.left)
+        #right = self.visit(node.right, parent=node) if isnode(node.right) else str(node.right)
         metal_op = node.op
-        left = self.visit(node.left, parent=node) if isnode(node.left) else str(node.left)
-        right = self.visit(node.right, parent=node) if isnode(node.right) else str(node.right)
+        print("node.left: ", node.left)
+        if isnode(node.left):
+            print("ISNODE")
+            left = self.visit(node.left, parent=node)
+        elif node.left.isdigit():
+            print("ISDIGIT")
+            left = METAL_Literal(node.left)
+        else:
+            print("ISVAR")
+            left = METAL_Variable(node.left)
+        print("LEFT:", left)
+
+        if isnode(node.right):
+            right = self.visit(node.right, parent=node)
+        elif node.right.isdigit():
+            right = METAL_Literal(node.right)
+        else:
+            right = METAL_Variable(node.right)
+        
         return  METAL_Binary(metal_op, left, right)
 
     def visit_Literal(self, node, parent=None):
@@ -134,8 +153,8 @@ class CUDAVisitor(object):
         return METAL_Literal(value=value)
 
     def visit_Variable(self, node, parent=None):
-        name = node.name
-        return METAL_Variable(name)
+        #name = node.name
+        return METAL_Variable(node.name)
 
     def visit_Array(self, node, parent=None):
         array_name = self.visit(node.name, parent=node) if isnode(node.name) else node.name
@@ -147,6 +166,20 @@ class CUDAVisitor(object):
         return METAL_Var(metal_var)
 
     # visit IR nodes. OBS: Metal doesn't have built-ins so all cudavar must be passed as argument to metal kernel
+    def visit_Add(self, node, parent=None):
+        operands = [self.visit(op) for op in node.operands]
+        res = operands[0]
+        for op in operands[1:]:
+            res = METAL_Binary("+", res, op)
+        return res
+
+    def visit_Mul(self, node, parent=None):
+        operands = [self.visit(op) for op in node.operands]  
+        res = operands[0]
+        for op in operands[1:]:
+            res = METAL_Binary("*", res, op)
+        return res
+    
     def visit_ThreadIdx(self, node, parent=None):
         name = "tidx"
         if not check_param(self.kernel_params, "thread_index_in_threadgroup"):
@@ -164,7 +197,7 @@ class CUDAVisitor(object):
     def visit_BlockDim(self, node, parent=None):
         name = "tptg"
         if not check_param(self.kernel_params, "threads_per_threadgroup"):
-            param = METAL_Parameter(memory_type=None, type="uint", name=name, attr=f"threads_per_threadgroup.{node.dim}", buffer=None, init=None)
+            param = METAL_Parameter(memory_type=None, type="uint", name=name, attr=f"threads_per_threadgroup", buffer=None, init=None)
             self.kernel_params.append(param)
         return METAL_Variable(name=f"{name}.{node.dim}") #it was: f"blockDim.{node.dim}"
     
@@ -172,12 +205,12 @@ class CUDAVisitor(object):
     def visit_error(self, node, attr): 
         print(f"The node {node} has no attribute named {attr}!")
 
-
 def check_param(params, attr):
     for p in params:
         if p.attr == attr:
             return True
     return False
+
 # helpers (move this to another file)
 def isnode(node):
     """ Check if the node that we're visiting has any node as value for any attribute """
@@ -186,7 +219,7 @@ def isnode(node):
 # i guess i can remove stuff from here, like: "blockIdx.x * blockDim.x + threadIdx.x": metal_term = "[[thread_position_in_grid]]" 
 def metal_map(cuda_term):
     """ Maps CUDA concept syntax into METAL concept syntax"""
-    metal_term = ""
+    metal_term = None
     match cuda_term:
         case "blockIdx":        metal_term = "[[threadgroup_position_in_grid]]"
         case "blockIdx.x":      metal_term = "[[threadgroup_position_in_grid]]"
@@ -196,7 +229,7 @@ def metal_map(cuda_term):
         case "__shared__":      metal_term = "threadgroup" # using shared memory
         case "__constant__":    metal_term = "constant"
         case "blockIdx.x * blockDim.x + threadIdx.x": metal_term = "[[thread_position_in_grid]]"
-        case "blockIdx.y * blockDim.y + threadIdx.y": metal_term = "[[thread_position_in_threadgroup]]"
+        case "blockIdx.y * blockDim.y + threadIdx.y": metal_term = "[[thread_position_in_threadgroup]]" # add this new rule
         case "blockIdx.y":     metal_term = "[[thread_position_in_threadgroup]]"
         case "__syncthreads()": metal_term = "threadgroud_barrier()"
     return metal_term
@@ -356,8 +389,7 @@ def IRconstruct(expr):
 
 
 # adding high-level semantic nodes to the expressions
-# Add(operands=[Mul(operands=[ThreadIdx(dim='x')]), Mul(operands=[BlockIdx(dim='x'), BlockDim(dim='x')])]) 
-# -> GlobalThreadIdx()
+# Add(operands=[Mul(operands=[ThreadIdx('x')]), Mul(operands=[BlockIdx('x'), BlockDim('x')])]) -> GlobalThreadIdx()
 # Move this to new .py file!
 class Rule:
     def __init__(self, name, fpattern, fbuilder):
@@ -433,7 +465,7 @@ def IRrewrite(subtree):
     print("IR subtree: ", subtree)
     # rules
     rule1 = Rule(
-        "GlobalThreadIdx",  # name
+        "GlobalThreadIdx",    # name
         pat_GlobalThreadIdx,  # pattern function
         build_GlobalThreadIdx # builder function
     )
@@ -449,28 +481,27 @@ def IRrewrite(subtree):
 # to the kernel. Even when using a declaration like: `int a = threadIdx.x / BLOCKSZ;` In metal we need to pass as arg:
 # `(uint tx [[thread_index_in_threadgroup]])` and then inside the kernel we do: `int a = tx / BLOCKSZ`
 #
-# 1- (DONE) make the IR all in the beginning. So when we flatten the node, already create a high level IR
-#    with Mul/Add nodes and ThreadIdx/BlockIdx/BlockDim nodes as well. Make the IR all in the beginning.
-#    This is the Lower part, where we change the AST into IR
-# 2- (DONE) canonicalize. So reorder, fold. We can remove addtag, because we can return its value by checking
-#    its IR node.
-# 3- pattern matching. IR rewrite to higher-level semantic nodes
-# 4- (DONE) create new function `lowering()` that flattens the node and return the first IR with Mul/Add and
-#    Thread/Block nodes. Like this:
-#    Add(operands=[Mul(operands=[BlockIdx(dim='x'), BlockDim(dim='x')]), 
-#                  Mul(operands=[ThreadIdx(dim='x')])])
-# 5- (DONE) Then, does the canonicalization: (reorder, fold, ...)
-# 6- (DONE) then, for last we rewrite the IR to get the higher level nodes.
-# 7- (DONE) remove semantic_analisys() function. Make all in pattern_matcher(). pattern_matcher() will call
-#    lowering(), then canonicalize(), then IRrewrite()
-# 8- Add visit functions for the new IR nodes, such as visit_ThreadIdx(), visit_BlockIdx(), ... 
+#
+# BUGS:
+# 1- (DONE!) When declarating a new variable like this: `int tCol = tidx.x`, we need to create a Declaration node
+# where tCol is now a METAL_Variable. So the node should be: METAL_Declaration(..., name=METAL_Variable('tCol))
+# e.g.: METAL_Declaration(memory=None, type='int', name='tCol', value=[METAL_Variable(name='tidx.x')])
+#               ...
+# And on later uses of that variable in the code, should be referenced as METAL_Variable, and not just the string 
+# name.
+# (wrong!)      
+#   METAL_Assignment(name=METAL_Array(name='data0_s', index=METAL_Binary(op='+', 
+#                               left=METAL_Binary(op='*', left='tRow', right='CHUNKSIZE'), right='tCol')...
+# (right!)
+#   METAL_Assignment(name=METAL_Array(name='data0_s', index=METAL_Binary(op='+', 
+#                               left=METAL_Binary(op='*', left=METAL_Variable('tRow'), right='CHUNKSIZE'), 
+#                               right=METAL_Variable('tCol')).
 #
 # TODO:
 # optimizations:
 # - improve `fold` function
 # - algebraic simplification
 # - fuse kernels. Add a 'opt' flag for user if he wants to fuse kernels
-# - add tree normalization. ex: Add(a, Add(b, c)) transform into Add(a, b, c)
 
 # make this canonicalization as a class eventually
 #class ExprCanonicalizer:

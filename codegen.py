@@ -1,6 +1,7 @@
 from traverse import isnode
 from ast_builder import METAL_Parameter, METAL_IfStatement, METAL_ForStatement
 
+# recursive-descent code generation
 class CodeGen():
 
     def generator(self, node, indent=0): # add indent. For specific calls like inside for params, we can set right indent
@@ -49,17 +50,31 @@ class CodeGen():
     # body of the kernel. We need to have a way to move them into Parameters when they're thread index 
     # calculations
     def gen_METAL_Parameter(self, node, indent=0):
-        memory_type = "" if node.memory_type is None else node.memory_type
-        type = node.type
-        name = node.name
-        buff = "" if not node.buffer else str(node.buffer)
-        init = node.init if node.init else ""
-        #if init is not "":
-        if init != "":
-            code_str = f"{str(memory_type)} {str(type)} {str(name)}{str(buff)} {str(init)}"
-        else:
-            code_str = f"{str(memory_type)} {str(type)} {str(name)}{str(buff)}"
-        return code_str 
+        attrs = []
+        if node.memory_type is not None:
+            attrs.append(node.memory_type)
+        
+        # fixed! all nodes have this  
+        attrs.append(node.type)
+        attrs.append(node.name)
+
+        if node.attr is not None:
+            attrs.append(f"[[{node.attr}]]")
+        
+        if node.buffer is not None: # this could be `elif` because buffer and attr can't be together
+            attrs.append(f"[[buffer {node.buffer}]]")
+        
+        if node.init is not None:
+            attrs.append(node.init)
+
+        return " ".join(attrs)
+
+        #codestr = []
+        #for k,v in node.__dict__.items():
+        #    print("k:", k)
+        #    print("v:", v)
+        #    if v is not None:
+        #        codestr.append(v
 
     def gen_METAL_Body(self, node, indent=0):
         bodystr = ""
@@ -74,21 +89,46 @@ class CodeGen():
         return bodystr
 
     def gen_METAL_Declaration(self, node, indent):
+        print("DECLARATION NODE: ", node)
         space = " " * indent # indent=4 for body child nodes
-        print(indent)
-        memory = node.memory
-        type = node.type
-        # error here!!!! for some reason
-        name = self.generator(node.name) if isnode(node.name) else node.name
-        if node.memory != None:
-            declaration_str = f"{str(memory)} {str(type)} {str(name)}" if node.value == None else f"{str(memory)} {str(type)} {str(name)} = "
-        else:
-            declaration_str = f"{type} {name} = "
+        #memory = node.memory
+        #type = node.type
+        #name = self.generator(node.name) if isnode(node.name) else node.name  # error here!!!! for some reason
+        
+        print("memory:", node.memory)
+        print("type:", node.type)
+        print("name:", node.name)
+
+        attrs = []
+
+        if node.memory is not None:
+            attrs.append(node.memory)
+        attrs.append(node.type)
+        attrs.append(self.generator(node.name)) if isnode(node.name) else node.name
+
+        print("attrs before:", attrs)
+        # obs: falta o '='
         if node.children() is not None:
             for child in node.children():
-                child_decla_str = self.generator(child)#, indent)
-                declaration_str = declaration_str + str(child_decla_str)
-        return space + declaration_str# + ";" 
+                print("child:", child)
+                childstr = self.generator(child)
+                print("childstr:", childstr)
+                attrs.append(childstr)
+        print("attrs after:", attrs)
+        print(space+" ".join(attrs))
+
+        return space + " ".join(attrs) 
+
+
+        #if node.memory != None:
+        #    declaration_str = f"{str(memory)} {str(type)} {str(name)}" if node.value == None else f"{str(memory)} {str(type)} {str(name)} = "
+        #else:
+        #    declaration_str = f"{type} {name} = "
+        #if node.children() is not None:
+        #    for child in node.children():
+        #        child_decla_str = self.generator(child)#, indent)
+        #        declaration_str = declaration_str + str(child_decla_str)
+        #return space + declaration_str# + ";" 
 
     def gen_METAL_Assignment(self, node, indent):
         space = " " * indent
@@ -149,3 +189,13 @@ class CodeGen():
     def gen_METAL_Var(self, node, indent=0):
         metal_var_str = f"{node.metal_var}"
         return metal_var_str
+
+
+# OBS:
+# 1- remove string concatenation. Instead of `metal_code = f"{qualifier} {type} {" + s`. 
+#                                         Do: metal_code.append(f"{qualifier} {type} {).append(s)
+# Because with string concatenation, each concat copies everything to memory, even the first string that was 
+# already concatenated, which is waste of memory.
+#
+# BUGS:
+# 2- on gen_Declaration(), is not generating with '=', when there's value on the node
