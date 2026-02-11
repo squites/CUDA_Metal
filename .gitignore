@@ -1,2 +1,6 @@
-env
 __pycache__
+.vscode
+env
+metal-cpp
+notes.txt
+./examples/*.metal

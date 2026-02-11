@@ -1,5 +1,5 @@
 METALCPP_DIR = ./metal-cpp
-KERNEL_NAME = vecAdd
+KERNEL_NAME = naive_matmul
 DISPATCHER_SRC = dispatcher.cpp
 BIN = run_kernel
 
@@ -10,7 +10,8 @@ compileMetal: $(KERNEL_NAME).metal
 	xcrun -sdk macosx metallib $(KERNEL_NAME).air -o $(KERNEL_NAME).metallib
 
 buildDispatcher: $(DISPATCHER_SRC)
-	clang++ -std=c++17 -I$(METALCPP_DIR) \
+	clang++ -std=c++17 \
+	-I$(METALCPP_DIR) \
 	-framework Metal -framework Foundation -framework CoreServices \
 	$(DISPATCHER_SRC) -o $(BIN) 
 

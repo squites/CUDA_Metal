@@ -24,5 +24,8 @@ The transpiler currently performs canonicalization on the terms of the expressio
 - [ ] GEMM with vectorized Shared Memory and Global Memory accesses
 - [ ] Softmax
 - [ ] 2D Convolution
+- [ ] Forward pass
+- [ ] Backward pass
+- [ ] Training simple MLP
 - [ ] Attention
-- [ ] Complete Training
+- [ ] Replace Lark's use to my own implementation

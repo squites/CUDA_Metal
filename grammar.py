@@ -26,7 +26,6 @@ cuda_grammar = r"""
     # syncthread
     syncthreads: "__syncthreads()"
 
-
     # statements
     declaration: memory_type? type (identifier|array_index) ("=" expression)? # var declaration 
     assignment: (array_index | identifier) "=" expression

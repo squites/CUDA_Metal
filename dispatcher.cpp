@@ -6,6 +6,11 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
+#include <cstdlib>
+
+float randFloat() {
+    return (float)(std::rand()) / (float)(std::rand());    
+}
 
 int main() {
     constexpr int arrayLength = 20;
@@ -18,11 +23,11 @@ int main() {
     MTL::CommandQueue* commandQueue = device->newCommandQueue();
 
     // 3) load metal library
-    NS::String* filePath = NS::String::string("./vecAdd.metallib", NS::ASCIIStringEncoding);
+    NS::String* filePath = NS::String::string("./naive_matmul.metallib", NS::ASCIIStringEncoding);
     MTL::Library* library = device->newLibrary(filePath, &error);
 
     // 4) create function 
-    MTL::Function* function = library->newFunction(NS::String::string("vecAdd", NS::ASCIIStringEncoding));
+    MTL::Function* function = library->newFunction(NS::String::string("naive_matmul", NS::ASCIIStringEncoding));
 
     // 5) create compute pipeline state
     MTL::ComputePipelineState* pipelineState = device->newComputePipelineState(function, &error);
@@ -32,9 +37,12 @@ int main() {
     float* dataB = new float[arrayLength];
 
     // fill arrays with data (todo: create func to generate random float numbers)
+    srand(time(0));
     for (int i = 0; i < arrayLength; i++) {
-        dataA[i] = static_cast<float>(i);
-        dataB[i] = static_cast<float>(i*2);
+        dataA[i] = randFloat();
+        dataB[i] = randFloat();
+        //dataA[i] = static_cast<float>(i);
+        //dataB[i] = static_cast<float>(i*2);
     }
 
     // 7) create metal buffers
@@ -48,7 +56,7 @@ int main() {
 
     // 9) set pipeline state and buffers
     computeEncoder->setComputePipelineState(pipelineState);
-    computeEncoder->setBuffer(bufferA, 0, 0);
+    computeEncoder->setBuffer(bufferA, 0, 0); // (buffer, offset: 0, buffer: 0), find a way to tell this index for the kernel
     computeEncoder->setBuffer(bufferB, 0, 1);
     computeEncoder->setBuffer(bufferResult, 0, 2);
 
@@ -70,15 +78,15 @@ int main() {
     float* resultData = static_cast<float*>(bufferResult->contents());
     std::cout<<"\ndataA:\n";
     for (int i = 0; i < arrayLength; i++) {
-        std::cout<<dataA[i]<<"  ";
+        std::cout<<dataA[i]<<" ";
     }
     std::cout<<"\ndataB:\n";
     for (int i = 0; i < arrayLength; i++) {
-        std::cout<<dataB[i]<<"  ";
+        std::cout<<dataB[i]<<" ";
     }
     std::cout<<"\nresult:\n";
     for (int i = 0; i < arrayLength; i++) {
-        std::cout<<resultData[i]<<"  ";
+        std::cout<<resultData[i]<<" ";
     }
 
     // release resources (free)
@@ -95,3 +103,8 @@ int main() {
 
     return 0;
 }
+
+/*
+TODO:
+- implement function to check if the result is right instead of printing the array
+*/

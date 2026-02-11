@@ -29,43 +29,43 @@ def main():
     #arg = argparse.ArgumentParser()
     #arg.add_argument("-t", "--tree", action=)
 
-    with open("./examples/gemm_smem_cacheblocking.cu", "r") as f: # maybe create a function that generates the respective metal to all ./examples cuda kernels
-        kernel_vecAdd = f.read()
+    with open("./examples/addOne.cu", "r") as f:
+    #with open("./examples/gemm_smem_cacheblocking.cu", "r") as f: # maybe create a function that generates the respective metal to all ./examples cuda kernels
+        cudakernel = f.read()
 
     # parsing
     parser = Lark(cuda_grammar)
-    parse_tree = parser.parse(kernel_vecAdd)
+    parse_tree = parser.parse(cudakernel)
     #print(f"parse tree: {tree}") # type: <class 'lark.tree.Tree'>
     #print(parse_tree.pretty())
     #print(parse_tree)
 
     # builds cuda ast
-    #print("CUDA ast:")
     transformer = CUDATransformer()
     cuda_ast = transformer.transform(parse_tree)
     #print(type(cuda_ast)) # type: <class 'ast_builder.CUDA_Program'>
-    print(cuda_ast, "\n")
+    print(f"{cuda_ast}\n")
 
     # cuda visitor
     #print("VISITOR:")
     cuda_visitor = CUDAVisitor()
     metal_ast = cuda_visitor.visit(cuda_ast)
-    print("PARAMS: ")#cuda_visitor.kernel_params)
-    for p in cuda_visitor.kernel_params:
-        print(" ",p)
+    #print("PARAMS: ")#cuda_visitor.kernel_params)
+    #for p in cuda_visitor.kernel_params:
+    #    print(" ",p)
     #print("\nCUDA AST\n", cuda_ast)
     print("\nMETAL AST\n", metal_ast)
 
     # metal code gen
     gen = CodeGen()
-    metal_code_str = gen.generator(metal_ast)
+    metal_kernel = gen.generator(metal_ast)
     #print(f"\nCUDA kernel:\n{kernel_vecAdd}")
-    #print(f"\nMETAL Shader generated:\n{metal_code_str}")
+    print(f"\nMETAL Shader generated:\n{metal_kernel}")
 
     # writing in a file
-    #filename = "naive_matmul.metal"
-    #with open(filename, "x") as f:
-    #    f.write(metal_code_str)
+    filename = "./examples/addOne.metal"
+    with open(filename, "x") as f:
+        f.write(metal_kernel)
 
 if __name__ == "__main__":
     main()

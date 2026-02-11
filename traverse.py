@@ -13,6 +13,7 @@ class CUDAVisitor(object):
     def visit(self, node, parent=None, idx=0):
         method = "visit_" + node.__class__.__name__ # start: visit_CUDA_Program()
         visitor = getattr(self, method, self.visit_error) # visitor = self.visit_CUDA_Program()
+        print("Looking for: ", method)
         if str(method) == "visit_Parameter":
             return visitor(node, idx)
         if parent is not None:
@@ -74,7 +75,9 @@ class CUDAVisitor(object):
         name = self.visit(node.name) if isnode(node.name) else node.name
 
         if isinstance(node.value, GlobalThreadIdx):
-            param = METAL_Parameter(memory_type=None, type="uint3", name=node.name, attr="thread_position_in_grid", buffer=None, init=None)
+            # changed uint3 to uint, because we can't use uint3 as array index. Need to figure it out how to fix this
+            # in a way that we know when its an index to change to or not.
+            param = METAL_Parameter(memory_type=None, type="uint", name=node.name, attr="thread_position_in_grid", buffer=None, init=None)
             if not check_param(self.kernel_params, param.attr): # to not add repetitive vars on params
                 self.kernel_params.append(param)
             return None # dont return node because already added to kernel_params
@@ -153,7 +156,7 @@ class CUDAVisitor(object):
 
     def visit_Array(self, node, parent=None):
         array_name = self.visit(node.name, parent=node) if isnode(node.name) else node.name
-        idx = self.visit(node.index)
+        idx = self.visit(node.index) if isnode(node.index) else METAL_Variable(node.index) # need to add elif isdigit(): METAL_Literal()?
         return METAL_Array(array_name, idx)
 
     def visit_CudaVar(self, node, parent=None):
@@ -197,8 +200,10 @@ class CUDAVisitor(object):
         return METAL_Variable(name=f"{name}.{node.dim}") #it was: f"blockDim.{node.dim}"
     
     # error call function
-    def visit_error(self, node, attr): 
-        print(f"The node {node} has no attribute named {attr}!")
+    def visit_error(self, node, parent=None): 
+        print(f"No visit method for node: {node.__class__.__name__}")
+        print("Node:\n", node)
+        #print(f"The node {node} has no attribute named {attr}!")
 
 def check_param(params, attr):
     for p in params:

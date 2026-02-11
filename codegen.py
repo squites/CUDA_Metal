@@ -157,7 +157,6 @@ class CodeGen():
         space = " " * indent
         return space + f"threadgroup_barrier(mem_flags::{node.mem_flag})" 
 
-
     # ex: METAL_Binary(op='+',left=METAL_Variable(name='a'), right='b')
     def gen_METAL_Binary(self, node, indent=0): 
         op = node.op
@@ -166,8 +165,8 @@ class CodeGen():
         right = self.generator(node.right) if isnode(node.right) else node.right
         binary_str = f"{left} {op} {right}"
         # need to put this in parameter later
-        if binary_str == "[[threadgroup_position_in_grid]] * [[threads_per_threadgroup]] + [[thread_position_in_threadgroup]]":
-            binary_str = "[[thread_position_in_grid]]" # gambiarra (fix later!!!!)
+        #if binary_str == "[[threadgroup_position_in_grid]] * [[threads_per_threadgroup]] + [#[thread_position_in_threadgroup]]":
+        #    binary_str = "[[thread_position_in_grid]]" # gambiarra (fix later!!!!)
         return binary_str
 
     def gen_METAL_Literal(self, node, indent=0):
