@@ -8,6 +8,14 @@ class CUDAVisitor(object):
         #self.buffer_idx = -1
         self.kernel_params = []
         self.body = []
+        # for json metadata (if we have multiple kernels we need to reset the list between kernels)
+        self.kernel_metadata = { 
+            "kernelName": "",
+            "buffers": [],
+            "scalars": [],
+            #"sharedMemory": {"size": 0, "dynamic": False},
+            #"access": read or write # we check this on the kernel body. If a[i] = x, then a is to write
+        }
 
     # passing the node parent
     def visit(self, node, parent=None, idx=0):
@@ -27,6 +35,16 @@ class CUDAVisitor(object):
         return METAL_Program(header=lib, kernel=kernel)
 
     def visit_Kernel(self, node):
+        # fill metadata to generate a dispatcher
+        if isinstance(node, Kernel): 
+            self.kernel_metadata["kernelName"] = node.name
+            for i, p in enumerate(node.parameters): 
+                metadata = {"name": p.name, "type": p.type, "idx": i}
+                if (p.type == "int*" or p.type == "float*"):
+                    self.kernel_metadata["buffers"].append(metadata)
+                else:
+                    self.kernel_metadata["scalars"].append(metadata)
+
         qualifier = "kernel" if node.qualifier == "__global__" else ""
         type = node.type
         name = node.name
@@ -76,7 +94,7 @@ class CUDAVisitor(object):
 
         if isinstance(node.value, GlobalThreadIdx):
             # changed uint3 to uint, because we can't use uint3 as array index. Need to figure it out how to fix this
-            # in a way that we know when its an index to change to or not.
+            # in a way that we know when its an index to change  to or not.
             param = METAL_Parameter(memory_type=None, type="uint", name=node.name, attr="thread_position_in_grid", buffer=None, init=None)
             if not check_param(self.kernel_params, param.attr): # to not add repetitive vars on params
                 self.kernel_params.append(param)
@@ -482,6 +500,10 @@ def IRrewrite(subtree):
 # `(uint tx [[thread_index_in_threadgroup]])` and then inside the kernel we do: `int a = tx / BLOCKSZ`
 #
 # TODO:
+# 1) Traverse the CUDA AST and generate a json with the kernel metadata. This json will then be used
+# to generate the metal dispatcher, setting the right buffers, and so on.
+#
+#
 # optimizations:
 # - improve `fold` function
 # - algebraic simplification
