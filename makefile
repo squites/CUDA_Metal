@@ -1,22 +1,24 @@
-METALCPP_DIR = ./metal-cpp
-KERNEL_NAME = naive_matmul
-DISPATCHER_SRC = dispatcher.cpp
-BIN = run_kernel
+KERNEL ?= addOne
+DISPATCHER = dispatcher.mm
+OUTPUT = runner
 
-all: compileMetal buildDispatcher run
+all: $(OUTPUT)
 
-compileMetal: $(KERNEL_NAME).metal
-	xcrun -sdk macosx metal -c $(KERNEL_NAME).metal -o $(KERNEL_NAME).air
-	xcrun -sdk macosx metallib $(KERNEL_NAME).air -o $(KERNEL_NAME).metallib
+# transpile
+$(KERNEL).metal $(DISPATCHER): $(KERNEL).cu
+	python main.py $(KERNEL).cu --grid $(GRID) --block $(BLOCK)
 
-buildDispatcher: $(DISPATCHER_SRC)
-	clang++ -std=c++17 \
-	-I$(METALCPP_DIR) \
-	-framework Metal -framework Foundation -framework CoreServices \
-	$(DISPATCHER_SRC) -o $(BIN) 
+# compile Metal
+$(KERNEL).metallib: $(KERNEL).metal
+	xcrun -sdk macosx metal -c $(KERNEL).metal -o $(KERNEL).air
+	xcrun -sdk macosx metallib $(KERNEL).air -o $(KERNEL).metallib
 
-run:
-	./$(BIN)
+# compile dispatcher
+$(OUTPUT): $(DISPATCHER) $(KERNEL).metallib
+	clang++ -framework Metal -framework Foundation $(DISPATCHER) -o $(OUTPUT)
+
+run: $(OUTPUT)
+	./$(OUTPUT)
 
 clean:
-	rm -f $(KERNEL_NAME).air $(KERNEL_NAME).metallib $(BIN)
+	rm -f *.air *.metallib $(OUTPUT)

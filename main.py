@@ -29,13 +29,14 @@ import json
 def main():
     # add flags to control to execution and pass Grid and Block size. Also flags for to print the CUDA AST, Metal AST ...
     arg = argparse.ArgumentParser()
+    arg.add_argument("cuda_path", type=str)
     arg.add_argument("--grid", type=int, nargs=3, default=[1,1,1])
     arg.add_argument("--block", type=int, nargs=3, default=[1,1,1])
     args = arg.parse_args()
 
-    # flag to pass the filepath?
-    with open("./examples/addOne.cu", "r") as f:
+    #with open("./examples/addOne.cu", "r") as f:
     # maybe create a function that generates the respective metal to all ./examples cuda kernels
+    with open(args.cuda_path, "r") as f:
         cudakernel = f.read()
 
     # parsing
