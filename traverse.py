@@ -8,20 +8,23 @@ class CUDAVisitor(object):
         #self.buffer_idx = -1
         self.kernel_params = []
         self.body = []
+        self.wbuffers = set()
+        self.rbuffers = set()
         # for json metadata (if we have multiple kernels we need to reset the list between kernels)
-        self.kernel_metadata = { 
-            "kernelName": "",
-            "buffers": [],
-            "scalars": [],
-            #"sharedMemory": {"size": 0, "dynamic": False},
-            #"access": read or write # we check this on the kernel body. If a[i] = x, then a is to write
+        self.kernel_metadata = {
+            "kernel": {
+                "kernelName": "",
+                "buffers": [],
+                "scalars": [],
+                #"sharedMemory": {"size": 0, "dynamic": False},
+                #"access": read or write # we check this on the kernel body. If a[i] = x, then a is to write
+            }
         }
 
     # passing the node parent
     def visit(self, node, parent=None, idx=0):
         method = "visit_" + node.__class__.__name__ # start: visit_CUDA_Program()
         visitor = getattr(self, method, self.visit_error) # visitor = self.visit_CUDA_Program()
-        print("Looking for: ", method)
         if str(method) == "visit_Parameter":
             return visitor(node, idx)
         if parent is not None:
@@ -35,16 +38,6 @@ class CUDAVisitor(object):
         return METAL_Program(header=lib, kernel=kernel)
 
     def visit_Kernel(self, node):
-        # fill metadata to generate a dispatcher
-        if isinstance(node, Kernel): 
-            self.kernel_metadata["kernelName"] = node.name
-            for i, p in enumerate(node.parameters): 
-                metadata = {"name": p.name, "type": p.type, "idx": i}
-                if (p.type == "int*" or p.type == "float*"):
-                    self.kernel_metadata["buffers"].append(metadata)
-                else:
-                    self.kernel_metadata["scalars"].append(metadata)
-
         qualifier = "kernel" if node.qualifier == "__global__" else ""
         type = node.type
         name = node.name
@@ -58,13 +51,33 @@ class CUDAVisitor(object):
                 if isinstance(child, Parameter):
                     self.kernel_params.append(child_node)
                 else:
-                    body.append(child_node) 
+                    body.append(child_node)
+            
+            # build metadata to generate dispatcher
+            if isinstance(node, Kernel): 
+                self.kernel_metadata["kernel"]["kernelName"] = node.name
+                for i, p in enumerate(node.parameters): 
+                    metadata = {"name": p.name, "type": p.type, "idx": i}
+                    if (p.type == "int*" or p.type == "float*"):
+                        if p.name in self.wbuffers and p.name in self.rbuffers:
+                            metadata["access"] = "read_write"
+                        elif p.name in self.wbuffers:
+                            metadata["access"] = "write"
+                        else:
+                            metadata["access"] = "read"
+                        self.kernel_metadata["kernel"]["buffers"].append(metadata)
+                    else:
+                        self.kernel_metadata["kernel"]["scalars"].append(metadata)
             return METAL_Kernel(qualifier, type, name, self.kernel_params, body)
+
         else:
             return METAL_Kernel(qualifier, type, name, [], [])
 
+    # fix for scalar values. All scalars have to have `constant uint& a [[buffer(x)]]`. Also change on codegen.
     def visit_Parameter(self, node, buffer_idx=0):
-        mem_type = metal_map(node.mem_type) # mem_type="device" when there's data pointer to GPU. So it's data stored on global memory, we need device 
+        print("PARAMETER:", node)
+        mem_type = metal_map(node.mem_type) # this can be removed i believe
+        print(mem_type)
         if node.mem_type == "device" and node.type == "int*" or node.type == "float*":
             buffer = buffer_idx
         else:
@@ -78,7 +91,6 @@ class CUDAVisitor(object):
             for child in node.children():
                 # for each child, will return the respective METAL node. Ex: visit(child) = METAL_Declaration(type, name, value)
                 child_node = self.visit(child) # visit(Declaration), visit(Assignment)
-                print("child node: ", child_node)
                 # check if its Parameter() node for tid and gid
                 if child_node is not None: # this filters in cases like GlobalThreadIdx, because they're added to params, so there's no need to add them in body
                     statements.append(child_node) 
@@ -115,8 +127,16 @@ class CUDAVisitor(object):
 
     def visit_Assignment(self, node, parent=None):
         name = self.visit(node.name, parent=node) if isnode(node.name) else METAL_Variable(node.name)
+        if isinstance(node.name, Array):
+            self.wbuffers.add(node.name.name) # to know if the buffer is to write
+        
         if isnode(node.value):
             val = self.visit(node.value, parent=node)
+            if isinstance(node.value.left, Array):
+                self.rbuffers.add(node.value.left.name)
+            if isinstance(node.value.right, Array):
+                self.rbuffers.add(node.value.right.name)
+        
         elif node.value.isdigit():
             val = METAL_Literal(node.value)
         else:
@@ -499,11 +519,19 @@ def IRrewrite(subtree):
 # to the kernel. Even when using a declaration like: `int a = threadIdx.x / BLOCKSZ;` In metal we need to pass as arg:
 # `(uint tx [[thread_index_in_threadgroup]])` and then inside the kernel we do: `int a = tx / BLOCKSZ`
 #
+# VERY IMPORTANT!!!!!: 
+#   1. In metal every kernel parameter must live in a specific address space (device, threadgroup, constant, thread, built-in var)
+#      So: `kernel void a(int M)` is wrong! It needs to be: `kernel void a(constant uint& M [[buffer(0)]])`
+#      Scalars passed from CPU must live in `constant` address space!
+#   2. Why needs `[buffer(0)]` if its scalar?
+#      everything coming from CPU is bound into a buffer slot, even if it is just one integer.
+#      Metal requires the compiler to know exactly which argument maps to which resource slot in the argument 
+#      table. Without [[buffer(index)]], the kernel parameter has no binding location.
+#   3. Why `constant uint&` instead of `constant uint`?
+#      Because metal passes constant buffer arguments by reference.
+#  OBS: need to fix this both on visit_Parameter and also on codegen.  
+#
 # TODO:
-# 1) Traverse the CUDA AST and generate a json with the kernel metadata. This json will then be used
-# to generate the metal dispatcher, setting the right buffers, and so on.
-#
-#
 # optimizations:
 # - improve `fold` function
 # - algebraic simplification

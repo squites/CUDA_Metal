@@ -15,11 +15,15 @@ int main() {{
 
     const int N = {data_size};
     {buffer_creation}
+    
+    std::ifstream input("input.bin", std::ios::binary);
     {buffer_fill}
+    input.close();
 
     [encoder setComputePipelineState:pipeline];
 
     {buffer_bindings}
+    {scalar_bindings}
     MTLSize gridSize = MTLSizeMake({grid_config});
     MTLSize blockSize = MTLSizeMake({block_config});
     [encoder dispatchThreadgroups:gridSize threadsPerThreadgroup:blockSize];
@@ -28,7 +32,10 @@ int main() {{
     [commandBuffer commit];
     [commandBuffer waitUntilCompleted];
 
+    std::ofstream output("output.bin", std::ios::binary);
     {buffer_out}
+    output.close();
+
     return 0;
 }}
 """
@@ -42,18 +49,22 @@ def gen_dispatcher(metadata):
     for buf in metadata["kernel"]["buffers"]:
         buf_create += f'id<MTLBuffer> {buf["name"]}Buffer = [device newBufferWithLength:N * sizeof(float) options:MTLResourceStorageModeShared];\n{space}'
         
-    # fill buffers
+    # fill buffers 
     buf_fill = ""
     for buf in metadata["kernel"]["buffers"]:
-        if buf["name"] == "in":
-            buf_fill += f'float* {buf["name"]}Ptr = (float*)[{buf["name"]}Buffer contents];\n'
-            buf_fill += f'{space}for (int i = 0; i < N; i++) {{ {buf["name"]}Ptr[i] = (float)i; }}\n'
-            buf_fill += f'{space}for (int i = 0; i < N; i++) {{ std::cout << {buf["name"]}Ptr[i] << " ";}}'
+        if buf["access"] == "read":
+            buf_fill += f'input.read((char*)[{buf["name"]}Buffer contents], N * sizeof(float));\n'
     
     # buffer bindings
     buf_bind = ""
     for buf in metadata["kernel"]["buffers"]:
         buf_bind += f'[encoder setBuffer:{buf["name"]}Buffer offset:0 atIndex:{buf["idx"]}];\n{space}'
+
+    # scalar bindings
+    scalar_bind = ""
+    for scalar in metadata["kernel"]["scalars"]:
+        scalar_bind += f'{scalar["type"]} {scalar["name"]} = N;\n{space}'
+        scalar_bind += f'[encoder setBytes:&{scalar["name"]} length:sizeof({scalar["type"]}) atIndex:{scalar["idx"]}];\n{space}'
 
     # grid and block
     g = metadata["launch_config"]["grid"]
@@ -61,13 +72,11 @@ def gen_dispatcher(metadata):
     grid = f'{g[0]}, {g[1]}, {g[2]}'
     block = f'{b[0]}, {b[1]}, {b[2]}'
 
-    # output
     buf_out = ""
     for buf in metadata["kernel"]["buffers"]:
-        if buf["name"] == "out":
-            buf_out += f'{space}float* {buf["name"]}Ptr = (float*)[{buf["name"]}Buffer contents];\n'
-            buf_out += f'{space}for (int i = 0; i < N; i++) {{ std::cout << {buf["name"]}Ptr[i] << " ";}}'
- 
+        if buf["access"] == "write":
+            buf_out += f'output.write((char*)[{buf["name"]}Buffer contents], N*sizeof(float));\n'
+
 
     code = dispatcher_template.format(
         kernel_name=metadata["kernel"]["kernelName"],
@@ -75,6 +84,7 @@ def gen_dispatcher(metadata):
         buffer_creation=buf_create,
         buffer_fill=buf_fill,
         buffer_bindings=buf_bind,
+        scalar_bindings=scalar_bind,
         grid_config=grid,
         block_config=block,
         data_size=metadata["launch_config"]["dataSize"],

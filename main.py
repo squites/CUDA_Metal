@@ -5,8 +5,12 @@ from traverse import CUDAVisitor
 from codegen import CodeGen
 from dispatcher_gen import gen_dispatcher
 
+import subprocess
+import numpy as np
+
 import argparse
 import json
+import os
 
 #def validate_input(path: str):
 #    pass
@@ -26,7 +30,7 @@ import json
 #def hostfree():
 #    pass
 
-import os
+
 def main():
     # add flags to control to execution and pass Grid and Block size. Also flags for to print the CUDA AST, Metal AST ...
     arg = argparse.ArgumentParser()
@@ -53,9 +57,9 @@ def main():
     # builds cuda ast
     transformer = CUDATransformer() # type: <class 'ast_builder.CUDA_Program'>
     cuda_ast = transformer.transform(parse_tree)
-    print(f"{cuda_ast}\n")
+    #print(f"{cuda_ast}\n")
 
-    # visit cuda ast
+    # generates metal ast
     cuda_visitor = CUDAVisitor()
     metal_ast = cuda_visitor.visit(cuda_ast)
     
@@ -63,6 +67,9 @@ def main():
     # ideally, the grid and block size wouldn't be on json, and should be only passed during runtime
     cuda_visitor.kernel_metadata["launch_config"] = {"grid": grid, "block": block, "dataSize": args.dataSize}
     cuda_visitor.kernel_metadata["kernelFile"] = kernel_name
+    print("w:", cuda_visitor.wbuffers)
+    print("r:", cuda_visitor.rbuffers)
+    print(cuda_visitor.kernel_metadata)
     with open("metadata.json", 'w') as json_file:
         json.dump(cuda_visitor.kernel_metadata, json_file, indent=2)
 
@@ -72,17 +79,43 @@ def main():
         f.write(dispatcher_code)
 
     #print("\nCUDA AST\n", cuda_ast)
-    print("\nMETAL AST\n", metal_ast)
+    #print("\nMETAL AST\n", metal_ast)
 
-    # metal code gen
+    # generates metal code
     gen = CodeGen()
     metal_kernel = gen.generator(metal_ast)
     print(f"\nMETAL Shader generated:\n{metal_kernel}")
 
     # writing in a file
-    filename = f"{kernel_name}.metal" #"./examples/addOne.metal"
+    filename = f"./examples/{kernel_name}.metal" #"./examples/addOne.metal"
     with open(filename, "w") as f:
         f.write(metal_kernel)
+
+
+    # 2. compile metal shader
+    subprocess.run([
+        "xcrun", "-sdk", "macosx", "metal", "-c", f"./examples/{kernel_name}.metal", "-o", f"{kernel_name}.air"
+    ])
+    subprocess.run([
+        "xcrun", "-sdk", "macosx", "metallib", f"{kernel_name}.air", "-o", f"{kernel_name}.metallib"
+    ])
+
+    # 3. compile dispatcher
+    subprocess.run([
+        "clang++", "-framework", "Metal", "-framework", "Foundation", "dispatcher.mm", "-o", "runner"
+    ])
+
+    # 4. generate input data
+    data = np.arange(args.dataSize, dtype=np.float32)
+    print("input: ", data)
+    data.tofile("input.bin")
+
+    # 5. run kernel
+    subprocess.run(["./runner"])
+
+    # 6. read output
+    output = np.fromfile("output.bin", dtype=np.float32)
+    print("Output:", output)
 
 if __name__ == "__main__":
     main()
