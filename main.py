@@ -26,12 +26,14 @@ import json
 #def hostfree():
 #    pass
 
+import os
 def main():
     # add flags to control to execution and pass Grid and Block size. Also flags for to print the CUDA AST, Metal AST ...
     arg = argparse.ArgumentParser()
     arg.add_argument("cuda_path", type=str)
-    arg.add_argument("--grid", type=int, nargs=3, default=[1,1,1])
-    arg.add_argument("--block", type=int, nargs=3, default=[1,1,1])
+    arg.add_argument("--grid", type=str, default="1,1,1")
+    arg.add_argument("--block", type=str, default="1,1,1")
+    arg.add_argument("--dataSize", type=int, default=1024)
     args = arg.parse_args()
 
     #with open("./examples/addOne.cu", "r") as f:
@@ -39,15 +41,18 @@ def main():
     with open(args.cuda_path, "r") as f:
         cudakernel = f.read()
 
+    grid = [int(x) for x in args.grid.split(",")]
+    block = [int(x) for x in args.block.split(",")]
+    kernel_name = os.path.splitext(os.path.basename(args.cuda_path))[0]
+
     # parsing
     parser = Lark(cuda_grammar)
     parse_tree = parser.parse(cudakernel)
     #print(parse_tree.pretty()) # type: <class 'lark.tree.Tree'>
 
     # builds cuda ast
-    transformer = CUDATransformer()
+    transformer = CUDATransformer() # type: <class 'ast_builder.CUDA_Program'>
     cuda_ast = transformer.transform(parse_tree)
-    #print(type(cuda_ast)) # type: <class 'ast_builder.CUDA_Program'>
     print(f"{cuda_ast}\n")
 
     # visit cuda ast
@@ -56,7 +61,8 @@ def main():
     
     # Better: 1-Generate dispatcher once, 2-Pass grid/block at runtime. 3-Remove from metadata
     # ideally, the grid and block size wouldn't be on json, and should be only passed during runtime
-    cuda_visitor.kernel_metadata["launch_config"] = {"grid": args.grid, "block": args.block}
+    cuda_visitor.kernel_metadata["launch_config"] = {"grid": grid, "block": block, "dataSize": args.dataSize}
+    cuda_visitor.kernel_metadata["kernelFile"] = kernel_name
     with open("metadata.json", 'w') as json_file:
         json.dump(cuda_visitor.kernel_metadata, json_file, indent=2)
 
@@ -74,7 +80,7 @@ def main():
     print(f"\nMETAL Shader generated:\n{metal_kernel}")
 
     # writing in a file
-    filename = "./examples/addOne.metal"
+    filename = f"{kernel_name}.metal" #"./examples/addOne.metal"
     with open(filename, "w") as f:
         f.write(metal_kernel)
 
