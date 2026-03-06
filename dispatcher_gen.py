@@ -13,7 +13,7 @@ int main() {{
     id<MTLCommandBuffer> commandBuffer = [commandQueue commandBuffer];
     id<MTLComputeCommandEncoder> encoder = [commandBuffer computeCommandEncoder];
 
-    const int N = {data_size};
+    const int dataSize = {data_size};
     {buffer_creation}
     
     std::ifstream input("input.bin", std::ios::binary);
@@ -47,13 +47,13 @@ def gen_dispatcher(metadata):
     # buffer creation
     buf_create = ""
     for buf in metadata["kernel"]["buffers"]:
-        buf_create += f'id<MTLBuffer> {buf["name"]}Buffer = [device newBufferWithLength:N * sizeof(float) options:MTLResourceStorageModeShared];\n{space}'
+        buf_create += f'id<MTLBuffer> {buf["name"]}Buffer = [device newBufferWithLength:dataSize * sizeof(float) options:MTLResourceStorageModeShared];\n{space}'
         
     # fill buffers 
     buf_fill = ""
     for buf in metadata["kernel"]["buffers"]:
         if buf["access"] == "read":
-            buf_fill += f'input.read((char*)[{buf["name"]}Buffer contents], N * sizeof(float));\n'
+            buf_fill += f'input.read((char*)[{buf["name"]}Buffer contents], dataSize * sizeof(float));\n'
     
     # buffer bindings
     buf_bind = ""
@@ -63,7 +63,7 @@ def gen_dispatcher(metadata):
     # scalar bindings
     scalar_bind = ""
     for scalar in metadata["kernel"]["scalars"]:
-        scalar_bind += f'{scalar["type"]} {scalar["name"]} = N;\n{space}'
+        scalar_bind += f'{scalar["type"]} {scalar["name"]} = dataSize;\n{space}'
         scalar_bind += f'[encoder setBytes:&{scalar["name"]} length:sizeof({scalar["type"]}) atIndex:{scalar["idx"]}];\n{space}'
 
     # grid and block
@@ -75,7 +75,7 @@ def gen_dispatcher(metadata):
     buf_out = ""
     for buf in metadata["kernel"]["buffers"]:
         if buf["access"] == "write":
-            buf_out += f'output.write((char*)[{buf["name"]}Buffer contents], N*sizeof(float));\n'
+            buf_out += f'output.write((char*)[{buf["name"]}Buffer contents], dataSize*sizeof(float));\n'
 
 
     code = dispatcher_template.format(

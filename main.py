@@ -79,7 +79,7 @@ def main():
         f.write(dispatcher_code)
 
     #print("\nCUDA AST\n", cuda_ast)
-    #print("\nMETAL AST\n", metal_ast)
+    print("\nMETAL AST\n", metal_ast)
 
     # generates metal code
     gen = CodeGen()
@@ -105,10 +105,14 @@ def main():
         "clang++", "-framework", "Metal", "-framework", "Foundation", "dispatcher.mm", "-o", "runner"
     ])
 
-    # 4. generate input data
-    data = np.arange(args.dataSize, dtype=np.float32)
-    print("input: ", data)
-    data.tofile("input.bin")
+    # 4. generate input data (needs to be duplicated if we have 2 inputs. For example, for data0 and data1, each size 15, we need to generate then 30 values)
+    data = []
+    for p in cuda_visitor.kernel_metadata["kernel"]["buffers"]:
+        if p["access"] == "read":
+            data.append(np.arange(args.dataSize, dtype=np.float32))
+    
+    print(f'input {data}\n')
+    np.concatenate(data).tofile("input.bin")
 
     # 5. run kernel
     subprocess.run(["./runner"])

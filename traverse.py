@@ -75,15 +75,33 @@ class CUDAVisitor(object):
 
     # fix for scalar values. All scalars have to have `constant uint& a [[buffer(x)]]`. Also change on codegen.
     def visit_Parameter(self, node, buffer_idx=0):
-        print("PARAMETER:", node)
-        mem_type = metal_map(node.mem_type) # this can be removed i believe
-        print(mem_type)
-        if node.mem_type == "device" and node.type == "int*" or node.type == "float*":
+        #print("PARAMETER:", node)
+        #mem_type = metal_map(node.mem_type) # this can be removed i believe
+        ##print(mem_type)
+        #if node.mem_type == "device" and node.type == "int*" or node.type == "float*":
+        #    print(node.mem_type)
+        #    buffer = buffer_idx
+        #else:
+        #    mem_type = None 
+        #    buffer = None
+        #return METAL_Parameter(memory_type=mem_type, type=node.type, name=node.name, attr=None, buffer=buffer, init=None)
+        print("PARAMETER: ", node)
+        mem_type = metal_map(node.mem_type)
+        node_type = node.type
+        if node.type == "int*" or node.type == "float*": #or node.type == "int" or node.type == "float":
             buffer = buffer_idx
+            print("buffer:", buffer, buffer_idx)
+        elif node.type == "int" or node.type == "float":
+            buffer = buffer_idx
+            mem_type = "constant"
+            node_type = node.type + "&"
+            print("buffer2:", buffer, buffer_idx)
         else:
-            mem_type = None 
+            mem_type = None
             buffer = None
-        return METAL_Parameter(memory_type=mem_type, type=node.type, name=node.name, attr=None, buffer=buffer, init=None)
+        return METAL_Parameter(memory_type=mem_type, type=node_type, name=node.name, attr=None, buffer=buffer, init=None)
+
+
 
     def visit_Body(self, node):
         if node.children():
