@@ -13,23 +13,11 @@ import json
 import os
 
 #def validate_input(path: str):
-#    pass
-#
 #def alloc_device_mem():
-#    pass
-#
 #def move_to_device():
-#    pass
-#
 #def initialize_data():
-#    pass
-#
 #def devicefree():
-#    pass
-#
 #def hostfree():
-#    pass
-
 
 def main():
     # add flags to control to execution and pass Grid and Block size. Also flags for to print the CUDA AST, Metal AST ...
@@ -37,8 +25,11 @@ def main():
     arg.add_argument("cuda_path", type=str)
     arg.add_argument("--grid", type=str, default="1,1,1")
     arg.add_argument("--block", type=str, default="1,1,1")
-    #arg.add_argument("--dataSize", type=int, default=1024)
-    arg.add_argument("--dataSize", type=str, default="1024")
+    arg.add_argument("-N", type=int, default=1)
+    #arg.add_argument("--dataSize", type=str, default="1024")
+    #arg.add_argument("-S1", type=int, default=1)
+    #arg.add_argument("-S2", type=int, default=1)
+    #arg.add_argument("-S3", type=int, default=1)
     args = arg.parse_args()
 
     #with open("./examples/addOne.cu", "r") as f:
@@ -48,10 +39,11 @@ def main():
 
     grid = [int(x) for x in args.grid.split(",")]
     block = [int(x) for x in args.block.split(",")]
-    dataDim = [int(x) for x in args.dataSize.split(",")]
-    totalSize = 1
-    for d in dataDim:
-        totalSize *= d
+    #dataDim = [int(x) for x in args.dataSize.split(",")]
+    N = args.N
+    #for d in dataDim:
+    #    totalSize *= d
+    #totalSize = args.S1 * args.S2 * args.S3
     kernel_name = os.path.splitext(os.path.basename(args.cuda_path))[0]
 
     # parsing
@@ -70,19 +62,27 @@ def main():
     
     # Better: 1-Generate dispatcher once, 2-Pass grid/block at runtime. 3-Remove from metadata
     # ideally, the grid and block size wouldn't be on json, and should be only passed during runtime
-    cuda_visitor.kernel_metadata["launch_config"] = {"grid": grid, "block": block, "dataSize": dataDim, "totalSize": totalSize}
+    #cuda_visitor.kernel_metadata["launch_config"] = {"grid": grid, "block": block, "dataSize": dataDim, "totalSize": totalSize}
+    totalSize = N ** len(cuda_visitor.thread_idx_dims)
+    cuda_visitor.kernel_metadata["launch_config"] = {
+        "grid": grid,
+        "block": block,
+        "N": args.N,
+        #"scalar1": args.S1,
+        #"scalar2": args.S2,
+        #"scalar3": args.S3,
+        "totalSize": totalSize#N ** len(cuda_visitor.thread_idx_dims)
+    }
     cuda_visitor.kernel_metadata["kernelFile"] = kernel_name
-    print("w:", cuda_visitor.wbuffers)
-    print("r:", cuda_visitor.rbuffers)
-    print(cuda_visitor.kernel_metadata)
+    #print(cuda_visitor.kernel_metadata)
     with open("metadata.json", 'w') as json_file:
         json.dump(cuda_visitor.kernel_metadata, json_file, indent=2)
 
-    print("PRINTS:")
-    for p in cuda_visitor.kernel_params:
-        print("Param:", p)
+    print("THREAD DIMS USED :")
     for k,v in cuda_visitor.thread_idx_dims.items():
         print(f"{k}: {v}")
+    print("N:", N)
+    print("totalSize:", totalSize)
 
     # generate dispatcher code
     dispatcher_code = gen_dispatcher(cuda_visitor.kernel_metadata)
@@ -129,6 +129,7 @@ def main():
 
     # 5. run kernel
     subprocess.run(["./runner"])
+    #subprocess.run(["xcrun", "xctrace", "record", "--template", "Metal System Trace", "--launch", "./runner"])
 
     # 6. read output
     output = np.fromfile("output.bin", dtype=np.float32)
@@ -141,7 +142,5 @@ if __name__ == "__main__":
 # TODO:
 # - run and profile the metal kernel, comparing cuda and metal kernels results
 #   and performance.
-#   
-# - cool feature would be ask the user to type gridSize and blockSize in the command line while compiling
-# the code. If the user doesn't input anything, we generate the metal code, but test with many different
-# grid and block sizes, and select the best one (faster). 
+#
+# - add a nice print after running the kernel, showing how many threads, blocks, etc. Or figure it out the profiler
