@@ -37,7 +37,8 @@ def main():
     arg.add_argument("cuda_path", type=str)
     arg.add_argument("--grid", type=str, default="1,1,1")
     arg.add_argument("--block", type=str, default="1,1,1")
-    arg.add_argument("--dataSize", type=int, default=1024)
+    #arg.add_argument("--dataSize", type=int, default=1024)
+    arg.add_argument("--dataSize", type=str, default="1024")
     args = arg.parse_args()
 
     #with open("./examples/addOne.cu", "r") as f:
@@ -47,6 +48,10 @@ def main():
 
     grid = [int(x) for x in args.grid.split(",")]
     block = [int(x) for x in args.block.split(",")]
+    dataDim = [int(x) for x in args.dataSize.split(",")]
+    totalSize = 1
+    for d in dataDim:
+        totalSize *= d
     kernel_name = os.path.splitext(os.path.basename(args.cuda_path))[0]
 
     # parsing
@@ -65,13 +70,19 @@ def main():
     
     # Better: 1-Generate dispatcher once, 2-Pass grid/block at runtime. 3-Remove from metadata
     # ideally, the grid and block size wouldn't be on json, and should be only passed during runtime
-    cuda_visitor.kernel_metadata["launch_config"] = {"grid": grid, "block": block, "dataSize": args.dataSize}
+    cuda_visitor.kernel_metadata["launch_config"] = {"grid": grid, "block": block, "dataSize": dataDim, "totalSize": totalSize}
     cuda_visitor.kernel_metadata["kernelFile"] = kernel_name
     print("w:", cuda_visitor.wbuffers)
     print("r:", cuda_visitor.rbuffers)
     print(cuda_visitor.kernel_metadata)
     with open("metadata.json", 'w') as json_file:
         json.dump(cuda_visitor.kernel_metadata, json_file, indent=2)
+
+    print("PRINTS:")
+    for p in cuda_visitor.kernel_params:
+        print("Param:", p)
+    for k,v in cuda_visitor.thread_idx_dims.items():
+        print(f"{k}: {v}")
 
     # generate dispatcher code
     dispatcher_code = gen_dispatcher(cuda_visitor.kernel_metadata)
@@ -82,8 +93,9 @@ def main():
     print("\nMETAL AST\n", metal_ast)
 
     # generates metal code
-    gen = CodeGen()
+    gen = CodeGen(cuda_visitor.thread_idx_dims) # pass here the mappings: CodeGen(cuda_visitor.thread_idx_dims)
     metal_kernel = gen.generator(metal_ast)
+    print(f"\nCUDA kernel:\n", cudakernel)
     print(f"\nMETAL Shader generated:\n{metal_kernel}")
 
     # writing in a file
@@ -109,7 +121,8 @@ def main():
     data = []
     for p in cuda_visitor.kernel_metadata["kernel"]["buffers"]:
         if p["access"] == "read":
-            data.append(np.arange(args.dataSize, dtype=np.float32))
+            #data.append(np.arange(args.dataSize, dtype=np.float32))
+            data.append(np.random.rand(totalSize).astype(np.float32))
     
     print(f'input {data}\n')
     np.concatenate(data).tofile("input.bin")

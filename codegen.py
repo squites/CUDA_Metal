@@ -3,6 +3,8 @@ from ast_builder import METAL_Parameter, METAL_IfStatement, METAL_ForStatement
 
 # recursive-descent code generation
 class CodeGen():
+    def __init__(self, tdims):
+        self.tdims = tdims
 
     def generator(self, node, indent=0): # add indent. For specific calls like inside for params, we can set right indent
         """ 
@@ -69,12 +71,6 @@ class CodeGen():
 
         return " ".join(attrs)
 
-        #codestr = []
-        #for k,v in node.__dict__.items():
-        #    print("k:", k)
-        #    print("v:", v)
-        #    if v is not None:
-        #        codestr.append(v
 
     def gen_METAL_Body(self, node, indent=0):
         bodystr = ""
@@ -131,6 +127,7 @@ class CodeGen():
     def gen_METAL_IfStatement(self, node, indent):
         space = " " * indent # indent of "if" inside kernel body is 4
         cond = self.generator(node.condition)
+        #cond = self.generator(self.dims_mapping(node.condition))
         ifstr = space + "if (" + cond + ") {\n"
         bodystr = ""
         for b in node.if_body:
@@ -159,21 +156,18 @@ class CodeGen():
 
     # ex: METAL_Binary(op='+',left=METAL_Variable(name='a'), right='b')
     def gen_METAL_Binary(self, node, indent=0): 
-        op = node.op
+        #op = node.op
         binary_str = ""
         left = self.generator(node.left) if isnode(node.left) else str(node.left)
         right = self.generator(node.right) if isnode(node.right) else node.right
-        binary_str = f"{left} {op} {right}"
-        # need to put this in parameter later
-        #if binary_str == "[[threadgroup_position_in_grid]] * [[threads_per_threadgroup]] + [#[thread_position_in_threadgroup]]":
-        #    binary_str = "[[thread_position_in_grid]]" # gambiarra (fix later!!!!)
+        binary_str = f"{left} {node.op} {right}"
         return binary_str
 
     def gen_METAL_Literal(self, node, indent=0):
         return node.value
 
     def gen_METAL_Variable(self, node, indent=0):
-        return str(node.name) 
+        return str(self.dims_mapping(node.name)) # i think I can remove this str().
 
     def gen_METAL_Array(self, node, indent=0):
         name = self.generator(node.name) if isnode(node.name) else node.name
@@ -184,6 +178,13 @@ class CodeGen():
     def gen_METAL_Var(self, node, indent=0):
         metal_var_str = f"{node.metal_var}"
         return metal_var_str
+
+    def dims_mapping(self, name):
+        if name in self.tdims:
+            dim = self.tdims[name]
+            return f'tid.{dim}'
+        return name
+
 
 
 # OBS:

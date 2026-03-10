@@ -5,8 +5,8 @@ from ast_builder import *
 class CUDAVisitor(object):
     """ Traverse the ast nodes """
     def __init__(self):
-        #self.buffer_idx = -1
         self.kernel_params = []
+        self.thread_idx_dims = {} # for mapping cuda variables dims
         self.body = []
         self.wbuffers = set()
         self.rbuffers = set()
@@ -16,8 +16,6 @@ class CUDAVisitor(object):
                 "kernelName": "",
                 "buffers": [],
                 "scalars": [],
-                #"sharedMemory": {"size": 0, "dynamic": False},
-                #"access": read or write # we check this on the kernel body. If a[i] = x, then a is to write
             }
         }
 
@@ -35,6 +33,7 @@ class CUDAVisitor(object):
     def visit_CUDA_Program(self, node):
         lib = node.header
         kernel = self.visit(node.kernel)
+#        print("TESTE AQUI:", self.thread_idx_dims)
         return METAL_Program(header=lib, kernel=kernel)
 
     def visit_Kernel(self, node):
@@ -73,35 +72,20 @@ class CUDAVisitor(object):
         else:
             return METAL_Kernel(qualifier, type, name, [], [])
 
-    # fix for scalar values. All scalars have to have `constant uint& a [[buffer(x)]]`. Also change on codegen.
     def visit_Parameter(self, node, buffer_idx=0):
-        #print("PARAMETER:", node)
-        #mem_type = metal_map(node.mem_type) # this can be removed i believe
-        ##print(mem_type)
-        #if node.mem_type == "device" and node.type == "int*" or node.type == "float*":
-        #    print(node.mem_type)
-        #    buffer = buffer_idx
-        #else:
-        #    mem_type = None 
-        #    buffer = None
-        #return METAL_Parameter(memory_type=mem_type, type=node.type, name=node.name, attr=None, buffer=buffer, init=None)
         print("PARAMETER: ", node)
         mem_type = metal_map(node.mem_type)
         node_type = node.type
         if node.type == "int*" or node.type == "float*": #or node.type == "int" or node.type == "float":
             buffer = buffer_idx
-            print("buffer:", buffer, buffer_idx)
         elif node.type == "int" or node.type == "float":
             buffer = buffer_idx
             mem_type = "constant"
             node_type = node.type + "&"
-            print("buffer2:", buffer, buffer_idx)
         else:
             mem_type = None
             buffer = None
         return METAL_Parameter(memory_type=mem_type, type=node_type, name=node.name, attr=None, buffer=buffer, init=None)
-
-
 
     def visit_Body(self, node):
         if node.children():
@@ -123,9 +107,12 @@ class CUDAVisitor(object):
         name = self.visit(node.name) if isnode(node.name) else node.name
 
         if isinstance(node.value, GlobalThreadIdx):
-            # changed uint3 to uint, because we can't use uint3 as array index. Need to figure it out how to fix this
+            # we can't use uint3 as array index. It needs to be uint3.x for example
             # in a way that we know when its an index to change  to or not.
-            param = METAL_Parameter(memory_type=None, type="uint", name=node.name, attr="thread_position_in_grid", buffer=None, init=None)
+            param = METAL_Parameter(memory_type=None, type="uint3", name="tid", attr="thread_position_in_grid", buffer=None, init=None)
+            self.thread_idx_dims[node.name] = node.value.dim
+            #self.kernel_params.append(param) # this was inside `if not check_param...`
+            print("Param GID:", param)
             if not check_param(self.kernel_params, param.attr): # to not add repetitive vars on params
                 self.kernel_params.append(param)
             return None # dont return node because already added to kernel_params
@@ -456,6 +443,7 @@ class Rule:
     def match(self, node):
         print("matching: ", node)
         binds = self.fpattern(node)
+        print("binds:", binds)
         if binds is not None:
             return self.fbuilder(binds)
         return None
@@ -484,7 +472,7 @@ class Rewriter:
 
 # pattern functions:
 def pat_GlobalThreadIdx(node):
-    print("Pattern function: ", node)
+    print("Pattern function (GlobalThreadIdx): ", node)
     if not isinstance(node, Add):
         return None
     if len(node.operands) != 2:
@@ -533,6 +521,12 @@ def IRrewrite(subtree):
 
 
 # OBS:
+# Update: it was adding multiple GlobalThreadIdx() and mapping to add uint, uint2 or uint3. Removed that, now adds
+# only one uint3. Then I need to map the variables and which dims they use.
+# ex: int a = blockIdx.y * blockDim.y + threadIdx.y
+#   will be: uint3 tid [[thread_position_in_grid]];
+#            int a = tid.y;
+#
 # VERY IMPORTANT! In metal there are no built-in variables like in cuda. So we ALWAYS have to pass them as arguments
 # to the kernel. Even when using a declaration like: `int a = threadIdx.x / BLOCKSZ;` In metal we need to pass as arg:
 # `(uint tx [[thread_index_in_threadgroup]])` and then inside the kernel we do: `int a = tx / BLOCKSZ`
@@ -547,7 +541,8 @@ def IRrewrite(subtree):
 #      table. Without [[buffer(index)]], the kernel parameter has no binding location.
 #   3. Why `constant uint&` instead of `constant uint`?
 #      Because metal passes constant buffer arguments by reference.
-#  OBS: need to fix this both on visit_Parameter and also on codegen.  
+#  
+# OBS: need to fix this both on visit_Parameter and also on codegen.  
 #
 # TODO:
 # optimizations:
