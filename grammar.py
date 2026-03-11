@@ -57,7 +57,7 @@ cuda_grammar = r"""
     LOGICAL_OPS: "==" | ">" | "<" | ">=" | "<=" | "!=" | "&&"
     cuda_var: BASE_VAR "." CUDA_DIM
     BASE_VAR: ("blockIdx" | "blockDim" | "threadIdx")
-    CUDA_DIM: ("x" | "y")
+    CUDA_DIM: ("x" | "y" | "z")
     MEM_TYPE: "__shared__" | "__constant__"
 
     # imports 
