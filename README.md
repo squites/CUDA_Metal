@@ -16,9 +16,9 @@ The translation works as:
 ## Execution
 To run the transpiler the user needs to pass the CUDA kernel file path, grid and block sizes and the data size. 
 ```bash
-python3 main.py "./examples/naive_matmul.cu" --grid=1,1,1 --block=8,8,1 --dataSize=64
+python3 main.py "./examples/naive_matmul.cu" --grid=1,1,1 --block=8,8,1 -N=64
 ```
-The program will generate `naive_matmul.metal`, `dispatcher.mm`, `input.bin` and `output.bin`. 
+The program will generate mainly `naive_matmul.metal`, `dispatcher.mm`, `input.bin` and `output.bin`. 
 
 ## Optimization
 The transpiler currently performs canonicalization on the terms of the expression and apply constant folding automatically. Eventually, there will be loop optimizations, constant propagations, and many more.
