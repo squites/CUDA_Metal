@@ -26,24 +26,15 @@ def main():
     arg.add_argument("--grid", type=str, default="1,1,1")
     arg.add_argument("--block", type=str, default="1,1,1")
     arg.add_argument("-N", type=int, default=1)
-    #arg.add_argument("--dataSize", type=str, default="1024")
-    #arg.add_argument("-S1", type=int, default=1)
-    #arg.add_argument("-S2", type=int, default=1)
-    #arg.add_argument("-S3", type=int, default=1)
+    arg.add_argument("--dims", type=int, default=1)
     args = arg.parse_args()
 
-    #with open("./examples/addOne.cu", "r") as f:
-    # maybe create a function that generates the respective metal to all ./examples cuda kernels
     with open(args.cuda_path, "r") as f:
         cudakernel = f.read()
 
     grid = [int(x) for x in args.grid.split(",")]
     block = [int(x) for x in args.block.split(",")]
-    #dataDim = [int(x) for x in args.dataSize.split(",")]
     N = args.N
-    #for d in dataDim:
-    #    totalSize *= d
-    #totalSize = args.S1 * args.S2 * args.S3
     kernel_name = os.path.splitext(os.path.basename(args.cuda_path))[0]
 
     # parsing
@@ -63,26 +54,22 @@ def main():
     # Better: 1-Generate dispatcher once, 2-Pass grid/block at runtime. 3-Remove from metadata
     # ideally, the grid and block size wouldn't be on json, and should be only passed during runtime
     #cuda_visitor.kernel_metadata["launch_config"] = {"grid": grid, "block": block, "dataSize": dataDim, "totalSize": totalSize}
-    totalSize = N ** len(cuda_visitor.thread_idx_dims)
+    print("T IDX DIMS:")
+    for k,v in cuda_visitor.thread_idx_dims.items():
+        print(f"{k}: {v}")
+    #totalSize = N ** len(cuda_visitor.thread_idx_dims) # this is wrong. Because I can have 2 variables .x, and the length will be 2, so will consider to be matrix. I need to analyse each variable and see how many dimensions each variable is using
+    totalSize = N ** args.dims # if dims==2, then its a matrix
+    print("TOTAL SIZEEE:", totalSize)
     cuda_visitor.kernel_metadata["launch_config"] = {
         "grid": grid,
         "block": block,
         "N": args.N,
-        #"scalar1": args.S1,
-        #"scalar2": args.S2,
-        #"scalar3": args.S3,
+        "dims": args.dims,
         "totalSize": totalSize#N ** len(cuda_visitor.thread_idx_dims)
     }
     cuda_visitor.kernel_metadata["kernelFile"] = kernel_name
-    #print(cuda_visitor.kernel_metadata)
     with open("metadata.json", 'w') as json_file:
         json.dump(cuda_visitor.kernel_metadata, json_file, indent=2)
-
-    print("THREAD DIMS USED :")
-    for k,v in cuda_visitor.thread_idx_dims.items():
-        print(f"{k}: {v}")
-    print("N:", N)
-    print("totalSize:", totalSize)
 
     # generate dispatcher code
     dispatcher_code = gen_dispatcher(cuda_visitor.kernel_metadata)
@@ -103,7 +90,6 @@ def main():
     with open(filename, "w") as f:
         f.write(metal_kernel)
 
-
     # 2. compile metal shader
     subprocess.run([
         "xcrun", "-sdk", "macosx", "metal", "-c", f"./examples/{kernel_name}.metal", "-o", f"{kernel_name}.air"
@@ -121,8 +107,8 @@ def main():
     data = []
     for p in cuda_visitor.kernel_metadata["kernel"]["buffers"]:
         if p["access"] == "read":
-            #data.append(np.arange(args.dataSize, dtype=np.float32))
-            data.append(np.random.rand(totalSize).astype(np.float32))
+            data.append(np.arange(totalSize).astype(np.float32))
+            #data.append(np.random.rand(totalSize).astype(np.float32))
     
     print(f'input {data}\n')
     np.concatenate(data).tofile("input.bin")
@@ -137,7 +123,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
 # TODO:
 # - run and profile the metal kernel, comparing cuda and metal kernels results
