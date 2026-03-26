@@ -6,8 +6,9 @@ class CUDAVisitor(object):
     """ Traverse the ast nodes """
     def __init__(self):
         self.kernel_params = []
-        self.thread_idx_dims = {} # for mapping cuda variables dims
         self.body = []
+        self.thread_idx_dims = {} # for mapping cuda variables dims # maybe is better to have varname: [dims], so for a variable, check all dims that variable has to decide
+        self.atomic_bufs = set()
         self.wbuffers = set()
         self.rbuffers = set()
         # for json metadata (if we have multiple kernels we need to reset the list between kernels)
@@ -33,7 +34,6 @@ class CUDAVisitor(object):
     def visit_CUDA_Program(self, node):
         lib = node.header
         kernel = self.visit(node.kernel)
-#        print("TESTE AQUI:", self.thread_idx_dims)
         return METAL_Program(header=lib, kernel=kernel)
 
     def visit_Kernel(self, node):
@@ -73,6 +73,12 @@ class CUDAVisitor(object):
             return METAL_Kernel(qualifier, type, name, [], [])
 
     def visit_Parameter(self, node, buffer_idx=0):
+        # here we need to check is the buffer is an atomic buffer. If it is, we need to generate the node with
+        # `atomic_int*` type. But how to do that? we need to somehow check that node, but we check parameter first,
+        # then the kernel body, but we need to check first the body, add that to self.atomic_bufs, then change type
+        # on Parameter node. Generate the Metal node with the right type. Maybe we can add a pass, where walks the
+        # ast and check all atomics, add that node to `atomic_bufs`, and then execute the visit pass normally to
+        # generate Metal nodes.
         print("PARAMETER: ", node)
         mem_type = metal_map(node.mem_type)
         node_type = node.type
@@ -93,7 +99,7 @@ class CUDAVisitor(object):
             for child in node.children():
                 # for each child, will return the respective METAL node. Ex: visit(child) = METAL_Declaration(type, name, value)
                 child_node = self.visit(child) # visit(Declaration), visit(Assignment)
-                # check if its Parameter() node for tid and gid
+                # check if it's Parameter() node for tid and gid
                 if child_node is not None: # this filters in cases like GlobalThreadIdx, because they're added to params, so there's no need to add them in body
                     statements.append(child_node) 
             return METAL_Body(statements)
@@ -105,22 +111,40 @@ class CUDAVisitor(object):
         memory = node.memory if node.memory else None
         type = node.type
         name = self.visit(node.name) if isnode(node.name) else node.name
+        print("DECLARATION:", node)
+        # add a function to remove this r/w buffers appends
+        if isinstance(node.name, Array):
+            self.wbuffers.append(node.name.name) # change this to call the function
 
+        if isnode(node.value):
+            print("node.value: ", node.value)
+            val = self.visit(node.value, parent=node)
+            print("val: ", val)
+            if isinstance(node.value, Binary):
+                if isinstance(node.value.left, Array):
+                    self.rbuffers.add(node.value.left.name)
+                if isinstance(node.value.right, Array):
+                    self.rbuffers.add(node.value.right.name)
+            elif isinstance(node.value, Array):
+                self.rbuffers.add(node.value.name)
+        
         if isinstance(node.value, GlobalThreadIdx):
             # we can't use uint3 as array index. It needs to be uint3.x for example
-            # in a way that we know when its an index to change  to or not.
             param = METAL_Parameter(memory_type=None, type="uint3", name="tid", attr="thread_position_in_grid", buffer=None, init=None)
+            # problem here, this is only couting dims if the node is GlobalThreadIdx(), which is wrong. That's why totalSize=1.
             self.thread_idx_dims[node.name] = node.value.dim
-            #self.kernel_params.append(param) # this was inside `if not check_param...`
-            print("Param GID:", param)
+            print("THREAD IDX DIMS: ", self.thread_idx_dims)
+            self.map_vars[node.name] = param.name
+            print("MAP VARS: ", self.map_vars)
             if not check_param(self.kernel_params, param.attr): # to not add repetitive vars on params
                 self.kernel_params.append(param)
-            return None # dont return node because already added to kernel_params
+            return None
 
+        # I guess we only need the mapping for pattern matcher nodes created like GlobalThreadIdx(). No need for BlockIdx()!!!
         if node.children():
             value = [] # = Expression(Binary, Literal, Variable, Array)
             for child in node.children():
-                child_node = self.visit(child, parent=node) # this makes the METAL AST node to have METAL_Binary instead of Binary, for Declarations that have Binary nodes as values for example.
+                child_node = self.visit(child, parent=node)
                 value.append(child_node)
 
             if value != None:
@@ -130,18 +154,22 @@ class CUDAVisitor(object):
         else:
             return METAL_Declaration(metal_map(memory), type, name, value=node.value)
 
+    # histogram doesn't have assignment statement, that's why `rbuffers/wbuffers` are not being filled
     def visit_Assignment(self, node, parent=None):
+        print("ASSIGNMENT: ", node)
         name = self.visit(node.name, parent=node) if isnode(node.name) else METAL_Variable(node.name)
         if isinstance(node.name, Array):
-            self.wbuffers.add(node.name.name) # to know if the buffer is to write
-        
+            self.wbuffers.add(node.name.name) # check if the buffer is to write
+
         if isnode(node.value):
             val = self.visit(node.value, parent=node)
-            if isinstance(node.value.left, Array):
-                self.rbuffers.add(node.value.left.name)
-            if isinstance(node.value.right, Array):
-                self.rbuffers.add(node.value.right.name)
-        
+            if isinstance(node.value, Binary):
+                if isinstance(node.value.left, Array):
+                    self.rbuffers.add(node.value.left.name)
+                if isinstance(node.value.right, Array):
+                    self.rbuffers.add(node.value.right.name)
+            elif isinstance(node.value, Array):
+                self.rbuffers.add(node.value.name) 
         elif node.value.isdigit():
             val = METAL_Literal(node.value)
         else:
@@ -169,6 +197,17 @@ class CUDAVisitor(object):
             stmts.append(child_node)
         
         return METAL_ForStatement(init=init, condition=cond, increment=incr, forBody=stmts)
+
+    def visit_AtomicOP(self, node, parent=None):
+        self.atomic_bufs.add(node.addr)
+        func = metal_map(node.func)
+        print("ATOMIC OP:", node)
+        if isinstance(node.addr, Array):
+            self.wbuffers.add(node.addr.name) #wbuffer because we're storing in addr the result
+        addr = self.visit(node.addr)
+        value = self.visit(node.value)
+        mem_ordering = "memory_order_relaxed"
+        return METAL_AtomicOP(func=func, addr=addr, value=value, mem_ordering=mem_ordering)
 
     def visit_SyncThreads(self, node, parent=None):
         return METAL_Barrier()
@@ -206,7 +245,7 @@ class CUDAVisitor(object):
         metal_var = metal_map(node.base)
         return METAL_Var(metal_var)
 
-    # visit IR nodes. OBS: Metal doesn't have built-ins so all cudavar must be passed as argument to metal kernel
+    # OBS: Metal doesn't have built-ins so all cudavar must be passed as argument to metal kernel
     def visit_Add(self, node, parent=None):
         operands = [self.visit(op) for op in node.operands]
         res = operands[0]
@@ -221,15 +260,23 @@ class CUDAVisitor(object):
             res = METAL_Binary("*", res, op)
         return res
     
+    # this is wrong for all ThreadIdx(), BlockIDx(), BlockDim() nodes to add the dims to thread_idx_dims.
+    # it was working only for GlobalThreadIdx() nodes, because would add all dims used for that node, and added 
+    # them to know how many dims were using in the kernel to calculate the totalSize passed to dispatcher.
+    # Don't know how to work with that, needd to check
     def visit_ThreadIdx(self, node, parent=None):
-        name = "tid"
-        if not check_param(self.kernel_params, "thread_index_in_threadgroup"):
-            param = METAL_Parameter(memory_type=None, type="uint3", name=name, attr="thread_index_in_threadgroup", buffer=None, init=None)
+        name = "tid_local"
+        if not check_param(self.kernel_params, "thread_position_in_threadgroup"):
+            param = METAL_Parameter(memory_type=None, type="uint3", name=name, attr="thread_position_in_threadgroup", buffer=None, init=None)
             self.kernel_params.append(param)
         return METAL_Variable(name=f"{name}.{node.dim}") # it was: name=f"threadIdx.{node.dim}"
 
     def visit_BlockIdx(self, node, parent=None):
         name = "bid"
+        print("VISIT BLOCK:", node)
+        # maybe this is a solution to add all dims used from a variable name "name"
+        # But i think only works for blockIdx, threadIdx, blockDim. What about GlobalThreadIdx()? 
+        # Maybe the way to analyse is not by length, but to actually checking all dims that have.
         if not check_param(self.kernel_params, "threadgroup_position_in_grid"):
             param = METAL_Parameter(memory_type=None, type="uint3", name=name, attr="threadgroup_position_in_grid", buffer=None, init=None)
             self.kernel_params.append(param)
@@ -240,13 +287,12 @@ class CUDAVisitor(object):
         if not check_param(self.kernel_params, "threads_per_threadgroup"):
             param = METAL_Parameter(memory_type=None, type="uint3", name=name, attr=f"threads_per_threadgroup", buffer=None, init=None)
             self.kernel_params.append(param)
-        return METAL_Variable(name=f"{name}.{node.dim}") #it was: f"blockDim.{node.dim}"
+        return METAL_Variable(name=f"{name}.{node.dim}") 
     
     # error call function
     def visit_error(self, node, parent=None): 
         print(f"No visit method for node: {node.__class__.__name__}")
         print("Node:\n", node)
-        #print(f"The node {node} has no attribute named {attr}!")
 
 def check_param(params, attr):
     for p in params:
@@ -259,22 +305,34 @@ def isnode(node):
     """ Check if the node that we're visiting has any node as value for any attribute """
     return isinstance(node, (Binary, Literal, Variable, Array, CudaVar, ThreadIdx, METAL_Binary, METAL_Literal, METAL_Variable, METAL_Array, METAL_Var))
 
+def buf_class(buf):
+    # move all comparision here to append to r/w buffer
+    pass
+
+def find_atomics(node):
+    if isinstance(node, AtomicOP):
+        self.atomic_bufs.add(node.addr.name) if isnode(node.addr.name) else self.atomic_bufs.add(node.addr)
+    
+    if hasattr(node, 'children'):
+        for child in node.children():
+            if child is not None:
+                self.find_atomics(child)
+
+
 # i guess i can remove stuff from here, like: "blockIdx.x * blockDim.x + threadIdx.x": metal_term = "[[thread_position_in_grid]]" 
 def metal_map(cuda_term):
     """ Maps CUDA concept syntax into METAL concept syntax"""
     metal_term = None
     match cuda_term:
         case "blockIdx":        metal_term = "[[threadgroup_position_in_grid]]"
-        case "blockIdx.x":      metal_term = "[[threadgroup_position_in_grid]]"
         case "threadIdx":       metal_term = "[[thread_position_in_threadgroup]]"
         case "blockDim":        metal_term = "[[threads_per_threadgroup]]"
         case "__global__":      metal_term = "device" # using global memory
         case "__shared__":      metal_term = "threadgroup" # using shared memory
         case "__constant__":    metal_term = "constant"
-        case "blockIdx.x * blockDim.x + threadIdx.x": metal_term = "[[thread_position_in_grid]]"
-        case "blockIdx.y * blockDim.y + threadIdx.y": metal_term = "[[thread_position_in_threadgroup]]" # add this new rule
-        case "blockIdx.y":     metal_term = "[[thread_position_in_threadgroup]]"
         case "__syncthreads()": metal_term = "threadgroud_barrier()"
+        case "atomicAdd":       metal_term = "atomic_fetch_add_explicit"
+        case "atomicSub":       metal_term = "atomic_fetch_sub_explicit"
     return metal_term
 
 # ---------------------------------------------------------------------------
@@ -521,11 +579,18 @@ def IRrewrite(subtree):
 
 
 # OBS:
+# - PROBLEM: the hist buffer for histogram must be of type atomic_int* instead of simple int. So we need to check
+# on body function if that buffer is being used as counter for atomic function. If it is, change to atomic_int* 
+# on codegen.
+#
 # Update: it was adding multiple GlobalThreadIdx() and mapping to add uint, uint2 or uint3. Removed that, now adds
 # only one uint3. Then I need to map the variables and which dims they use.
 # ex: int a = blockIdx.y * blockDim.y + threadIdx.y
 #   will be: uint3 tid [[thread_position_in_grid]];
 #            int a = tid.y;
+#
+# OBS: I guess we only need the mapping for pattern matcher nodes created. For example GlobalThreadIdx().
+#  No need for BlockIdx()!!!
 #
 # VERY IMPORTANT! In metal there are no built-in variables like in cuda. So we ALWAYS have to pass them as arguments
 # to the kernel. Even when using a declaration like: `int a = threadIdx.x / BLOCKSZ;` In metal we need to pass as arg:
