@@ -71,7 +71,6 @@ class CodeGen():
 
         return " ".join(attrs)
 
-
     def gen_METAL_Body(self, node, indent=0):
         bodystr = ""
         if node.children():
@@ -150,6 +149,16 @@ class CodeGen():
             bodystr = bodystr + str(body) + "\n" if isinstance(statement, (METAL_ForStatement, METAL_IfStatement)) else bodystr + str(body) + ";\n"
         return header + bodystr + space + "}"
 
+    def gen_METAL_AtomicOP(self, node, indent):
+        print("METAL ATOMIC OP:\n", node)
+        space = " " * indent
+        func = node.func
+        addr = self.generator(node.addr)
+        value = self.generator(node.value)
+        mem_ordering = node.mem_ordering
+        return space + f'{func}(&{addr}, {value}, {mem_ordering})'
+
+
     def gen_METAL_Barrier(self, node, indent):
         space = " " * indent
         return space + f"threadgroup_barrier(mem_flags::{node.mem_flag})" 
@@ -167,6 +176,7 @@ class CodeGen():
         return node.value
 
     def gen_METAL_Variable(self, node, indent=0):
+        # here is where translates to code and map the right variable to the right dim
         return str(self.dims_mapping(node.name)) # i think I can remove this str().
 
     def gen_METAL_Array(self, node, indent=0):
@@ -180,12 +190,13 @@ class CodeGen():
         return metal_var_str
 
     def dims_mapping(self, name):
+        #print("dims mapping:", name)
+        print(self.tdims)
         if name in self.tdims:
             dim = self.tdims[name]
+            #print("dim:", dim)
             return f'tid.{dim}'
         return name
-
-
 
 # OBS:
 # 1- remove string concatenation. Instead of `metal_code = f"{qualifier} {type} {" + s`. 

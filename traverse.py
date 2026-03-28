@@ -41,6 +41,9 @@ class CUDAVisitor(object):
         type = node.type
         name = node.name
         
+        find_atomics(node, self.atomic_bufs)
+        print("Atomics: ", self.atomic_bufs)
+
         if node.children():
             param_idx = -1
             body = []
@@ -84,6 +87,8 @@ class CUDAVisitor(object):
         node_type = node.type
         if node.type == "int*" or node.type == "float*": #or node.type == "int" or node.type == "float":
             buffer = buffer_idx
+            if node.name in self.atomic_bufs:
+                node_type = f'atomic_{node.type}'
         elif node.type == "int" or node.type == "float":
             buffer = buffer_idx
             mem_type = "constant"
@@ -134,8 +139,8 @@ class CUDAVisitor(object):
             # problem here, this is only couting dims if the node is GlobalThreadIdx(), which is wrong. That's why totalSize=1.
             self.thread_idx_dims[node.name] = node.value.dim
             print("THREAD IDX DIMS: ", self.thread_idx_dims)
-            self.map_vars[node.name] = param.name
-            print("MAP VARS: ", self.map_vars)
+            #self.map_vars[node.name] = param.name
+            #print("MAP VARS: ", self.map_vars)
             if not check_param(self.kernel_params, param.attr): # to not add repetitive vars on params
                 self.kernel_params.append(param)
             return None
@@ -199,7 +204,7 @@ class CUDAVisitor(object):
         return METAL_ForStatement(init=init, condition=cond, increment=incr, forBody=stmts)
 
     def visit_AtomicOP(self, node, parent=None):
-        self.atomic_bufs.add(node.addr)
+        #self.atomic_bufs.add(node.addr)
         func = metal_map(node.func)
         print("ATOMIC OP:", node)
         if isinstance(node.addr, Array):
@@ -309,14 +314,17 @@ def buf_class(buf):
     # move all comparision here to append to r/w buffer
     pass
 
-def find_atomics(node):
+def find_atomics(node, atomic_bufs):
+    print("FIND ATOMICS: ", node)
     if isinstance(node, AtomicOP):
-        self.atomic_bufs.add(node.addr.name) if isnode(node.addr.name) else self.atomic_bufs.add(node.addr)
+        print("ACHOU!")
+        if isinstance(node.addr, Array):
+            atomic_bufs.add(node.addr.name) 
     
     if hasattr(node, 'children'):
         for child in node.children():
             if child is not None:
-                self.find_atomics(child)
+                find_atomics(child, atomic_bufs)
 
 
 # i guess i can remove stuff from here, like: "blockIdx.x * blockDim.x + threadIdx.x": metal_term = "[[thread_position_in_grid]]" 
