@@ -25,6 +25,7 @@ int main() {{
 
     {buffer_bindings}
     {scalar_bindings}
+
     MTLSize gridSize = MTLSizeMake({grid_config});
     MTLSize blockSize = MTLSizeMake({block_config});
     [encoder dispatchThreadgroups:gridSize threadsPerThreadgroup:blockSize];
@@ -47,30 +48,13 @@ int main() {{
 
 def gen_dispatcher(metadata):
     space = " " * 4
-    
-    # we can fuse the 3 buffer loops into one
-    # buffer creation
-    #buf_create = ""
-    #for buf in metadata["kernel"]["buffers"]:
-    #    buf_create += f'id<MTLBuffer> {buf["name"]}Buffer = [device newBufferWithLength:dataSize * sizeof(float) options:MTLResourceStorageModeShared];\n{space}'
-    #    
-    ## fill buffers 
-    #buf_fill = ""
-    #for buf in metadata["kernel"]["buffers"]:
-    #    if buf["access"] == "read":
-    #        buf_fill += f'input.read((char*)[{buf["name"]}Buffer contents], dataSize * sizeof(float));\n{space}'
-    #
-    ## buffer bindings
-    #buf_bind = ""
-    #for buf in metadata["kernel"]["buffers"]:
-    #    buf_bind += f'[encoder setBuffer:{buf["name"]}Buffer offset:0 atIndex:{buf["idx"]}];\n{space}'
 
     # buffer (create/fill/binding)
     buf_create = ""
     buf_fill = ""
     buf_bind = ""
     for buf in metadata["kernel"]["buffers"]:
-        buf_create += f'id<MTLBuffer> {buf["name"]}Buffer = [device newBufferWithLength:totalSize * sizeof(float) options:MTLResourceStorageModeShared];\n{space}'
+        buf_create += f'id<MTLBuffer> {buf["name"]}Buffer = [device newBufferWithLength:totalSize * sizeof({buf["type"]}) options:MTLResourceStorageModeShared];\n{space}'
         if buf["access"] == "read":
             buf_fill += f'input.read((char*)[{buf["name"]}Buffer contents], totalSize * sizeof(float));\n{space}'
         buf_bind += f'[encoder setBuffer:{buf["name"]}Buffer offset:0 atIndex:{buf["idx"]}];\n{space}'
@@ -92,7 +76,6 @@ def gen_dispatcher(metadata):
         if buf["access"] == "write":
             buf_out += f'output.write((char*)[{buf["name"]}Buffer contents], totalSize*sizeof(float));\n'
 
-
     code = dispatcher_template.format(
         kernel_name=metadata["kernel"]["kernelName"],
         lib_file=f'{metadata["kernel"]["kernelName"]}.metallib',
@@ -109,7 +92,4 @@ def gen_dispatcher(metadata):
 
     return code
 
-
-
-# OBS: to pass the right size for allocate buffers and scalars, is better to add bufferSize for each buffer (A,B,C)
-# and add scalarSize for each scalar (M,N,K). So per-buffer sizes instead of a global size for everything.
+# Here on dispatcher we need to check if values are inside the limits

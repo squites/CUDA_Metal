@@ -56,11 +56,14 @@ class CUDAVisitor(object):
                     body.append(child_node)
             
             # build metadata to generate dispatcher
-            if isinstance(node, Kernel): 
+            if isinstance(node, Kernel):
+                print("node:", node)
                 self.kernel_metadata["kernel"]["kernelName"] = node.name
                 for i, p in enumerate(node.parameters): 
+                    # instead of adding `int*` to type, add `int32` for example, if p is buffer.
                     metadata = {"name": p.name, "type": p.type, "idx": i}
                     if (p.type == "int*" or p.type == "float*"):
+                        metadata["type"] = "int" # int32 figure it out how to work with different sizes
                         if p.name in self.wbuffers and p.name in self.rbuffers:
                             metadata["access"] = "read_write"
                         elif p.name in self.wbuffers:
@@ -102,7 +105,7 @@ class CUDAVisitor(object):
         if node.children():
             statements = []
             for child in node.children():
-                # for each child, will return the respective METAL node. Ex: visit(child) = METAL_Declaration(type, name, value)
+                # for each child return the respective METAL node. Ex: visit(child) = METAL_Declaration(type, name, value)
                 child_node = self.visit(child) # visit(Declaration), visit(Assignment)
                 # check if it's Parameter() node for tid and gid
                 if child_node is not None: # this filters in cases like GlobalThreadIdx, because they're added to params, so there's no need to add them in body
@@ -119,12 +122,10 @@ class CUDAVisitor(object):
         print("DECLARATION:", node)
         # add a function to remove this r/w buffers appends
         if isinstance(node.name, Array):
-            self.wbuffers.append(node.name.name) # change this to call the function
+            self.wbuffers.append(node.name.name) # change this to call the function `buf_class`
 
         if isnode(node.value):
-            print("node.value: ", node.value)
             val = self.visit(node.value, parent=node)
-            print("val: ", val)
             if isinstance(node.value, Binary):
                 if isinstance(node.value.left, Array):
                     self.rbuffers.add(node.value.left.name)
@@ -138,9 +139,7 @@ class CUDAVisitor(object):
             param = METAL_Parameter(memory_type=None, type="uint3", name="tid", attr="thread_position_in_grid", buffer=None, init=None)
             # problem here, this is only couting dims if the node is GlobalThreadIdx(), which is wrong. That's why totalSize=1.
             self.thread_idx_dims[node.name] = node.value.dim
-            print("THREAD IDX DIMS: ", self.thread_idx_dims)
             #self.map_vars[node.name] = param.name
-            #print("MAP VARS: ", self.map_vars)
             if not check_param(self.kernel_params, param.attr): # to not add repetitive vars on params
                 self.kernel_params.append(param)
             return None
@@ -204,7 +203,6 @@ class CUDAVisitor(object):
         return METAL_ForStatement(init=init, condition=cond, increment=incr, forBody=stmts)
 
     def visit_AtomicOP(self, node, parent=None):
-        #self.atomic_bufs.add(node.addr)
         func = metal_map(node.func)
         print("ATOMIC OP:", node)
         if isinstance(node.addr, Array):
@@ -278,7 +276,6 @@ class CUDAVisitor(object):
 
     def visit_BlockIdx(self, node, parent=None):
         name = "bid"
-        print("VISIT BLOCK:", node)
         # maybe this is a solution to add all dims used from a variable name "name"
         # But i think only works for blockIdx, threadIdx, blockDim. What about GlobalThreadIdx()? 
         # Maybe the way to analyse is not by length, but to actually checking all dims that have.
@@ -315,9 +312,7 @@ def buf_class(buf):
     pass
 
 def find_atomics(node, atomic_bufs):
-    print("FIND ATOMICS: ", node)
     if isinstance(node, AtomicOP):
-        print("ACHOU!")
         if isinstance(node.addr, Array):
             atomic_bufs.add(node.addr.name) 
     
