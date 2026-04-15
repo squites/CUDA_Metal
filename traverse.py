@@ -41,7 +41,7 @@ class CUDAVisitor(object):
         type = node.type
         name = node.name
         
-        find_atomics(node, self.atomic_bufs)
+        find_atomics(node, self.atomic_bufs) # to change the parameter type (int* -> atomic_int*). So find buffers that are atomic
         print("Atomics: ", self.atomic_bufs)
 
         if node.children():
@@ -79,7 +79,7 @@ class CUDAVisitor(object):
             return METAL_Kernel(qualifier, type, name, [], [])
 
     def visit_Parameter(self, node, buffer_idx=0):
-        # here we need to check is the buffer is an atomic buffer. If it is, we need to generate the node with
+        # here we need to check if the buffer is an atomic buffer. If it is, we need to generate the node with
         # `atomic_int*` type. But how to do that? we need to somehow check that node, but we check parameter first,
         # then the kernel body, but we need to check first the body, add that to self.atomic_bufs, then change type
         # on Parameter node. Generate the Metal node with the right type. Maybe we can add a pass, where walks the
@@ -135,9 +135,9 @@ class CUDAVisitor(object):
                 self.rbuffers.add(node.value.name)
         
         if isinstance(node.value, GlobalThreadIdx):
-            # we can't use uint3 as array index. It needs to be uint3.x for example
+            # we can't use uint3 as array index. Needs to be uint3.x
             param = METAL_Parameter(memory_type=None, type="uint3", name="tid", attr="thread_position_in_grid", buffer=None, init=None)
-            # problem here, this is only couting dims if the node is GlobalThreadIdx(), which is wrong. That's why totalSize=1.
+            # problem here, this is only couting dims if the node is GlobalThreadIdx()
             self.thread_idx_dims[node.name] = node.value.dim
             #self.map_vars[node.name] = param.name
             if not check_param(self.kernel_params, param.attr): # to not add repetitive vars on params
@@ -203,14 +203,28 @@ class CUDAVisitor(object):
         return METAL_ForStatement(init=init, condition=cond, increment=incr, forBody=stmts)
 
     def visit_AtomicOP(self, node, parent=None):
-        func = metal_map(node.func)
+        # important. If func==atomicCAS and value==Literal, we need to create a Declaration node that 
+        # assigns that value and pass the address var in `value` field 
         print("ATOMIC OP:", node)
+        func = metal_map(node.func)
         if isinstance(node.addr, Array):
             self.wbuffers.add(node.addr.name) #wbuffer because we're storing in addr the result
+        print("node.addr:", node.addr)
         addr = self.visit(node.addr)
+        print(self.visit)
         value = self.visit(node.value)
         mem_ordering = "memory_order_relaxed"
+        
+        if node.func == "atomicCAS":
+           print("AtomicCAS")
+           print(func, addr, value, node.desired)
+           des = self.visit(node.desired)
+           return METAL_AtomicOP(func=func, addr=addr, value=value, desired=des, mem_ordering=mem_ordering)
+
         return METAL_AtomicOP(func=func, addr=addr, value=value, mem_ordering=mem_ordering)
+
+    #def visit_AtomicOP(self, node, parent=None):
+    #    return genAtomicOP(node.func) 
 
     def visit_SyncThreads(self, node, parent=None):
         return METAL_Barrier()
@@ -292,7 +306,8 @@ class CUDAVisitor(object):
         return METAL_Variable(name=f"{name}.{node.dim}") 
     
     # error call function
-    def visit_error(self, node, parent=None): 
+    def visit_error(self, node, parent=None):
+        print("Error: ", node, node.__class__.__name__)
         print(f"No visit method for node: {node.__class__.__name__}")
         print("Node:\n", node)
 
@@ -321,6 +336,10 @@ def find_atomics(node, atomic_bufs):
             if child is not None:
                 find_atomics(child, atomic_bufs)
 
+def genAtomicOP(func):
+    #if func == "atomicAdd":
+    pass
+
 
 # i guess i can remove stuff from here, like: "blockIdx.x * blockDim.x + threadIdx.x": metal_term = "[[thread_position_in_grid]]" 
 def metal_map(cuda_term):
@@ -336,6 +355,7 @@ def metal_map(cuda_term):
         case "__syncthreads()": metal_term = "threadgroud_barrier()"
         case "atomicAdd":       metal_term = "atomic_fetch_add_explicit"
         case "atomicSub":       metal_term = "atomic_fetch_sub_explicit"
+        case "atomicCAS":       metal_term = "atomic_compare_exchange_weak_explicit"
     return metal_term
 
 # ---------------------------------------------------------------------------
@@ -582,18 +602,12 @@ def IRrewrite(subtree):
 
 
 # OBS:
-# - PROBLEM: the hist buffer for histogram must be of type atomic_int* instead of simple int. So we need to check
-# on body function if that buffer is being used as counter for atomic function. If it is, change to atomic_int* 
-# on codegen.
 #
 # Update: it was adding multiple GlobalThreadIdx() and mapping to add uint, uint2 or uint3. Removed that, now adds
 # only one uint3. Then I need to map the variables and which dims they use.
 # ex: int a = blockIdx.y * blockDim.y + threadIdx.y
 #   will be: uint3 tid [[thread_position_in_grid]];
 #            int a = tid.y;
-#
-# OBS: I guess we only need the mapping for pattern matcher nodes created. For example GlobalThreadIdx().
-#  No need for BlockIdx()!!!
 #
 # VERY IMPORTANT! In metal there are no built-in variables like in cuda. So we ALWAYS have to pass them as arguments
 # to the kernel. Even when using a declaration like: `int a = threadIdx.x / BLOCKSZ;` In metal we need to pass as arg:
@@ -609,25 +623,10 @@ def IRrewrite(subtree):
 #      table. Without [[buffer(index)]], the kernel parameter has no binding location.
 #   3. Why `constant uint&` instead of `constant uint`?
 #      Because metal passes constant buffer arguments by reference.
-#  
-# OBS: need to fix this both on visit_Parameter and also on codegen.  
 #
 # TODO:
-# optimizations:
 # - improve `fold` function
-# - algebraic simplification
-# - fuse kernels. Add a 'opt' flag for user if he wants to fuse kernels
-
-# make this canonicalization as a class eventually
-#class ExprCanonicalizer:
-#    """ canonicalize/normalize the expression to always have the same format """
-#    def canonicalize(self, node):
-#        if isinstance(node, Binary):
-#            return self._canonicalize_bin(node)
-#        
-#    def _canonicalize_bin(self, node):
-#        # node: Binary()
-#        left = self.canonicalize(node.left) if isinstance(node.left, Binary) else node
-#        right = self.canonicalize(node.right) if isinstance(node.right, Binary) else node
-#        print("left: ", left)
-#        print("right: ", right)
+# - implement atomicCAS(&address, expected, desired). Change the value on &address to be `desired` and 
+# return the old value if the value stored in address is the same as the expected.
+# - don't implement native Metal atomics with atomicCAS because its slow. Only implement the ones
+# that metal doesn't support like float atomicMax(), atomicMul(). 

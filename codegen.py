@@ -86,14 +86,7 @@ class CodeGen():
     def gen_METAL_Declaration(self, node, indent):
         print("DECLARATION NODE: ", node)
         space = " " * indent # indent=4 for body child nodes
-        #memory = node.memory
-        #type = node.type
         name = self.generator(node.name) if isnode(node.name) else node.name  # error here!!!! for some reason
-        
-        print("memory:", node.memory)
-        print("type:", node.type)
-        print("name:", node.name)
-
         attrs = []
 
         if node.memory is not None:
@@ -107,11 +100,8 @@ class CodeGen():
         if node.children() is not None:
             attrs.append("=")
             for child in node.children():
-                print("child:", child)
                 childstr = self.generator(child)
-                print("childstr:", childstr)
                 attrs.append(childstr)
-        print("attrs after:", attrs)
         print(space+" ".join(attrs))
 
         return space + " ".join(attrs) 
@@ -150,12 +140,17 @@ class CodeGen():
         return header + bodystr + space + "}"
 
     def gen_METAL_AtomicOP(self, node, indent):
+        # here we need to change the `addr` attr. Because not always we need exclusively the `&` char
+        # sometimes we can have a variable that stores the addr already, no need for `&` in this case
         print("METAL ATOMIC OP:\n", node)
         space = " " * indent
         func = node.func
         addr = self.generator(node.addr)
         value = self.generator(node.value)
         mem_ordering = node.mem_ordering
+        if node.desired is not None:
+            desired = self.generator(node.desired)
+            return space + f'{func}(&{addr}, {value}, {desired}, {mem_ordering})'
         return space + f'{func}(&{addr}, {value}, {mem_ordering})'
 
 
@@ -191,7 +186,7 @@ class CodeGen():
 
     def dims_mapping(self, name):
         #print("dims mapping:", name)
-        print(self.tdims)
+        #print(self.tdims)
         if name in self.tdims:
             dim = self.tdims[name]
             #print("dim:", dim)
@@ -201,5 +196,5 @@ class CodeGen():
 # OBS:
 # 1- remove string concatenation. Instead of `metal_code = f"{qualifier} {type} {" + s`. 
 #                                         Do: metal_code.append(f"{qualifier} {type} {).append(s)
-# Because with string concatenation, each concat copies everything to memory, even the first string that was 
+# string concatenation each concat copies everything to memory, even the first string that was 
 # already concatenated, which is waste of memory.

@@ -81,6 +81,14 @@ class ForStatement(Statement):
         return [self.forBody]
 
 @dataclass
+class AtomicOP(Statement):
+    # problem: atomicCAS treat attrs diffently. `value` must be a pointer in Metal, while in cuda we pass by value
+    func: str # atomicAdd, atomicSub
+    addr: "Expression" 
+    value: "Expression" # Needs to pass the value address instead of the value. So we need to create a var declaration
+    desired: Optional["Expression"] = None
+
+@dataclass
 class SyncThreads(Statement):
     pass
 
@@ -196,14 +204,13 @@ class CUDATransformer(Transformer):
         if items[0] == "__shared__" or items[0] == "__constant__":
             memory = items[0]
             type = items[1]
-            name = items[2]
+            name = items[2].value if isinstance(items[2], Token) else items[2]
             initializer = items[3] if len(items) == 4 else None
         else:
             memory = None
             type = items[0]
-            name = items[1]
+            name = items[1].value if isinstance(items[1], Token) else items[1]
             initializer = items[2] if len(items) == 3 else None
-
         return Declaration(memory=str(memory), type=str(type), name=name, value=initializer)
 
     def assignment(self, items): # error! for some reason the name is returning as TOKEN instead of the string 
@@ -223,10 +230,19 @@ class CUDATransformer(Transformer):
         forBody = items[3:]
         return ForStatement(init=init, condition=cond, increment=incr, forBody=forBody)
 
+    def atomic_statement(self, items):
+        print("ITEMS: ", items)
+        func = items[0]
+        addr = items[1]
+        value = items[2]
+        des = items[3] if len(items) == 4 else None
+        return AtomicOP(func=func, addr=addr, value=value, desired=des)
+
     def syncthreads(self, items):
         return SyncThreads()
 
     def expression(self, items):
+        print("Expression:", items) # addr from atomicCAS is coming here as str instead of Variable
         if len(items) == 1: # single term
             return items[0]
         left = items[0]
@@ -267,7 +283,7 @@ class CUDATransformer(Transformer):
         return token[0].value
     
     def identifier(self, token):
-        return token[0].value #.value
+        return token[0]#.value # when using `.value` returns `Variable()` node, but also `Token()` not right.
 
     def memory_type(self, token):
         return token[0].value
@@ -285,6 +301,9 @@ class CUDATransformer(Transformer):
     def cuda_var(self, items):
         base, dim = items
         return CudaVar(base=str(base), dim=str(dim))
+
+    def atomics(self, token):
+        return token[0].value
 
 
 ################# METAL ###################
@@ -363,6 +382,17 @@ class METAL_ForStatement(METAL_Statement):
         return [*self.forBody]
 
 @dataclass
+class METAL_AtomicOP(METAL_Statement):
+    # need to change the attributes to support atomicCAS
+    func: str
+    addr: "METAL_Expression"
+    value: "METAL_Expression"
+    desired: Optional["METAL_Expression"]
+    mem_ordering: str
+    # this is different than cuda, there is some memory things that we need to know. Also some atomics 
+    # are diff, and don't exist on Metal. Need to emulate
+
+@dataclass
 class METAL_Barrier(METAL_Statement):
     mem_flag: str = "mem_threadgroup" # 'mem_device', 'mem_none'
 
@@ -397,6 +427,3 @@ class METAL_Var(METAL_Ast):
 class METAL_GlobalThreadId(METAL_Ast):
     def __init__(self):
         raise NotImplementedError
-
-
-#class CUDAAtomic:
