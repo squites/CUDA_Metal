@@ -26,12 +26,9 @@ The transpiler currently performs canonicalization on the terms of the expressio
 ## TODO
 - [x] Vector Addition
 - [x] Naive Matmul
+- [ ] Histogram
 - [ ] GEMM with Shared Memory Cache-Blocking
 - [ ] GEMM 2D Blocktiling
-- [ ] GEMM with vectorized Shared Memory and Global Memory accesses
 - [ ] Softmax
-- [ ] 2D Convolution
-- [ ] Training simple MLP
 - [ ] Attention
 - [ ] Flash Attention
-- [ ] Replace Lark's use to my own lexer/parser
