@@ -6,3 +6,4 @@ notes.txt
 ./examples/*.metal
 metadata.json
 dispatcher.mm
+.DS_Store
