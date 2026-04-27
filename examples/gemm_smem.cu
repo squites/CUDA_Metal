@@ -1,4 +1,4 @@
-__global__ void gemm_smem_cacheblocking(float* data0, float* data1, float* data2,
+__global__ void gemm_smem(float* data0, float* data1, float* data2,
                                         int M, int N, int K, int CHUNKSIZE) {
     __shared__ float data0_s[CHUNKSIZE * CHUNKSIZE];
     __shared__ float data1_s[CHUNKSIZE * CHUNKSIZE];
@@ -15,9 +15,11 @@ __global__ void gemm_smem_cacheblocking(float* data0, float* data1, float* data2
     for (int bkIdx = 0; bkIdx < K; bkIdx = bkIdx + CHUNKSIZE) {
         data0_s[tRow * CHUNKSIZE + tCol] = data0[tRow * K + tCol];
         data1_s[tRow * CHUNKSIZE + tCol] = data1[tRow * N + tCol];
+        
         __syncthreads();
         data0 = data0 + CHUNKSIZE;
         data1 = data1 + CHUNKSIZE * N;
+        
         for (int dotIdx = 0; dotIdx < CHUNKSIZE; dotIdx = dotIdx + 1) {
             tmp = tmp + data0_s[tRow * CHUNKSIZE + dotIdx] * data1_s[dotIdx * CHUNKSIZE + tCol];
         }

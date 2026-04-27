@@ -121,6 +121,11 @@ class Array(Expression):
     # parent: Node
 
 @dataclass
+class FuncCall(Expression):
+    name: str
+    args: List[Expression]
+
+@dataclass
 class CudaVar:
     base: str # blockIdx, threadIdx, ...
     dim: str # x, y, z
@@ -241,6 +246,11 @@ class CUDATransformer(Transformer):
     def syncthreads(self, items):
         return SyncThreads()
 
+    def func_call(self, items):
+        name = str(items[0])
+        args = items[1:]
+        return FuncCall(name=name, args=args)
+    
     def expression(self, items):
         print("Expression:", items) # addr from atomicCAS is coming here as str instead of Variable
         if len(items) == 1: # single term
@@ -355,7 +365,12 @@ class METAL_Declaration(METAL_Statement):
     value: Optional["METAL_Expression"] = None # is generating a list value=[METAL_Binary(...)] while in cuda_ast generates value=Binary(...)
 
     def children(self):
-        return [*self.value] if self.value is not None else None # when adding '*', removes the "[]" for some reason
+        #return [*self.value] if self.value is not None else None # when adding '*', removes the "[]" for some reason
+        if self.value is None:
+            return []
+        if isinstance(self.value, list):
+            return self.value
+        return [self.value]
 
 @dataclass
 class METAL_Assignment(METAL_Statement):
@@ -418,6 +433,11 @@ class METAL_Variable(METAL_Expression):
 class METAL_Array(METAL_Expression):
     name: METAL_Variable
     index: METAL_Expression
+
+@dataclass
+class METAL_FuncCall(METAL_Expression):
+    name: str
+    args: List[METAL_Expression]
 
 @dataclass
 class METAL_Var(METAL_Ast):

@@ -50,13 +50,6 @@ def main():
     # generates metal ast
     cuda_visitor = CUDAVisitor()
     metal_ast = cuda_visitor.visit(cuda_ast)
-    
-    # Better: 1-Generate dispatcher once, 2-Pass grid/block at runtime. 3-Remove from metadata
-    # ideally, the grid and block size wouldn't be on json, and should be only passed during runtime
-    
-    #print("thread_idx_dims (MAIN): ")
-    #for k,v in cuda_visitor.thread_idx_dims.items():
-    #    print(f"{k}: {v}")
 
     totalSize = N ** args.dims # if dims==2, then its a matrix
     cuda_visitor.kernel_metadata["launch_config"] = {
@@ -106,8 +99,8 @@ def main():
     data = []
     for p in cuda_visitor.kernel_metadata["kernel"]["buffers"]:
         if p["access"] == "read":
-            data.append(np.ones(totalSize).astype(np.int32))
-            #data.append(np.random.rand(totalSize).astype(np.float32))
+            #data.append(np.ones(totalSize).astype(np.int32))
+            data.append(np.random.rand(totalSize).astype(np.float32))
     
     print(f'input {data}\ndata shape: {len(data)} buffers\n{totalSize} elements each')
     #print(f'first buffer 10 values {data[0][:10]}')
@@ -117,17 +110,16 @@ def main():
     subprocess.run(["./runner"])
     #subprocess.run(["xcrun", "xctrace", "record", "--template", "Metal System Trace", "--launch", "./runner"])
 
-    # 6. read output
+    # 6. read output (find a way to automatically set the np type instead of handcoded!)
     #output = np.fromfile("output.bin", dtype=np.float32)#.reshape(64,64)
-    output = np.fromfile("output.bin", dtype=np.int32)
+    output = np.fromfile("output.bin", dtype=np.float32)
     print("Output:", output)
 
 if __name__ == "__main__":
     main()
 
 # TODO:
-# - run and profile the metal kernel, comparing cuda and metal kernels results
-#   and performance.
+# - profile metal kernel, comparing with cuda results
 #
 # - OBS: kernel "gemm_smem.cu" is not working. For some reason its only computing the first 2 columns of the matrix
 # Tried changind the grid to 1D/2D, didnt work. Tried changing the kernel dims to use threadIdx.y as well, and 

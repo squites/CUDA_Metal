@@ -16,7 +16,6 @@ int main() {{
     const int totalSize = {totalSize};
     const int dimSize = {N};
     {buffer_creation}
-    
     std::ifstream input("input.bin", std::ios::binary);
     {buffer_fill}
     input.close();
@@ -73,7 +72,7 @@ def gen_dispatcher(metadata):
 
     buf_out = ""
     for buf in metadata["kernel"]["buffers"]:
-        if buf["access"] == "write":
+        if buf["access"] == "write" or buf["access"] == "read_write":
             buf_out += f'output.write((char*)[{buf["name"]}Buffer contents], totalSize*sizeof(float));\n'
 
     code = dispatcher_template.format(

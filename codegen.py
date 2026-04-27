@@ -84,7 +84,7 @@ class CodeGen():
         return bodystr
 
     def gen_METAL_Declaration(self, node, indent):
-        print("DECLARATION NODE: ", node)
+        #print("DECLARATION NODE: ", node)
         space = " " * indent # indent=4 for body child nodes
         name = self.generator(node.name) if isnode(node.name) else node.name  # error here!!!! for some reason
         attrs = []
@@ -95,7 +95,6 @@ class CodeGen():
         #attrs.append(self.generator(node.name)) if isnode(node.name) else node.name
         attrs.append(name)
 
-        print("attrs before:", attrs)
         # obs: falta o '='
         if node.children() is not None:
             attrs.append("=")
@@ -107,6 +106,7 @@ class CodeGen():
         return space + " ".join(attrs) 
 
     def gen_METAL_Assignment(self, node, indent):
+        #print("ASSIGNMENT NODE:\n", node)
         space = " " * indent
         name = self.generator(node.name) if isnode(node.name) else str(node.name)
         val = self.generator(node.value) if isnode(node.value) else str(node.value)
@@ -142,7 +142,7 @@ class CodeGen():
     def gen_METAL_AtomicOP(self, node, indent):
         # here we need to change the `addr` attr. Because not always we need exclusively the `&` char
         # sometimes we can have a variable that stores the addr already, no need for `&` in this case
-        print("METAL ATOMIC OP:\n", node)
+        #print("METAL ATOMIC OP:\n", node)
         space = " " * indent
         func = node.func
         addr = self.generator(node.addr)
@@ -153,14 +153,17 @@ class CodeGen():
             return space + f'{func}(&{addr}, {value}, {desired}, {mem_ordering})'
         return space + f'{func}(&{addr}, {value}, {mem_ordering})'
 
-
     def gen_METAL_Barrier(self, node, indent):
         space = " " * indent
         return space + f"threadgroup_barrier(mem_flags::{node.mem_flag})" 
 
+    def gen_METAL_FuncCall(self, node, indent):
+        space = " " * indent
+        args = ", ".join(self.generator(arg) for arg in node.args)
+        return f'{node.name}({args})'
+
     # ex: METAL_Binary(op='+',left=METAL_Variable(name='a'), right='b')
     def gen_METAL_Binary(self, node, indent=0): 
-        #op = node.op
         binary_str = ""
         left = self.generator(node.left) if isnode(node.left) else str(node.left)
         right = self.generator(node.right) if isnode(node.right) else node.right
@@ -171,7 +174,6 @@ class CodeGen():
         return node.value
 
     def gen_METAL_Variable(self, node, indent=0):
-        # here is where translates to code and map the right variable to the right dim
         return str(self.dims_mapping(node.name)) # i think I can remove this str().
 
     def gen_METAL_Array(self, node, indent=0):
@@ -185,11 +187,8 @@ class CodeGen():
         return metal_var_str
 
     def dims_mapping(self, name):
-        #print("dims mapping:", name)
-        #print(self.tdims)
         if name in self.tdims:
             dim = self.tdims[name]
-            #print("dim:", dim)
             return f'tid.{dim}'
         return name
 

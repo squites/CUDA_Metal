@@ -4,3 +4,5 @@ env
 metal-cpp
 notes.txt
 ./examples/*.metal
+metadata.json
+dispatcher.mm

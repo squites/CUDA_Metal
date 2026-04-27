@@ -29,6 +29,6 @@ The transpiler currently performs canonicalization on the terms of the expressio
 - [ ] Histogram
 - [ ] GEMM with Shared Memory Cache-Blocking
 - [ ] GEMM 2D Blocktiling
-- [ ] Softmax
+- [ ] Softmax (Naive, Shared Memory)
 - [ ] Attention
 - [ ] Flash Attention

@@ -63,7 +63,7 @@ class CUDAVisitor(object):
                     # instead of adding `int*` to type, add `int32` for example, if p is buffer.
                     metadata = {"name": p.name, "type": p.type, "idx": i}
                     if (p.type == "int*" or p.type == "float*"):
-                        metadata["type"] = "int" # int32 figure it out how to work with different sizes
+                        metadata["type"] = "int" if p.type == "int*" else "float" # int32 figure it out how to work with different sizes
                         if p.name in self.wbuffers and p.name in self.rbuffers:
                             metadata["access"] = "read_write"
                         elif p.name in self.wbuffers:
@@ -73,9 +73,13 @@ class CUDAVisitor(object):
                         self.kernel_metadata["kernel"]["buffers"].append(metadata)
                     else:
                         self.kernel_metadata["kernel"]["scalars"].append(metadata)
+            print("W Buffers:", self.wbuffers)
+            print("R Buffers:", self.rbuffers)
             return METAL_Kernel(qualifier, type, name, self.kernel_params, body)
 
         else:
+            print("W Buffers:", self.wbuffers)
+            print("R Buffers:", self.rbuffers)
             return METAL_Kernel(qualifier, type, name, [], [])
 
     def visit_Parameter(self, node, buffer_idx=0):
@@ -110,22 +114,30 @@ class CUDAVisitor(object):
                 # check if it's Parameter() node for tid and gid
                 if child_node is not None: # this filters in cases like GlobalThreadIdx, because they're added to params, so there's no need to add them in body
                     statements.append(child_node) 
+                #elif isinstance(child_node, list):
+                #    statements.extend(child_node)
+                print("child node:", child_node)
+            print("statements", statements)
             return METAL_Body(statements)
         else:
             return METAL_Body(node.statement)
 
     def visit_Declaration(self, node, parent=None):
         node = pattern_matcher(node) # when we rewrite the IR with GlobalThreadIdx() node for example, the code calls the visit_error() function, because there's no visit_GlobalThreadIdx() node for it. This could be a problem when creating METAL_ast. Fix that later!
+        print("DECLARATION:", node)
         memory = node.memory if node.memory else None
         type = node.type
         name = self.visit(node.name) if isnode(node.name) else node.name
-        print("DECLARATION:", node)
+        print("mem:", memory)
+        print("tye:", type)
+        print("name:", name)
         # add a function to remove this r/w buffers appends
         if isinstance(node.name, Array):
             self.wbuffers.append(node.name.name) # change this to call the function `buf_class`
 
         if isnode(node.value):
             val = self.visit(node.value, parent=node)
+            print("val:", val)
             if isinstance(node.value, Binary):
                 if isinstance(node.value.left, Array):
                     self.rbuffers.add(node.value.left.name)
@@ -137,21 +149,27 @@ class CUDAVisitor(object):
         if isinstance(node.value, GlobalThreadIdx):
             # we can't use uint3 as array index. Needs to be uint3.x
             param = METAL_Parameter(memory_type=None, type="uint3", name="tid", attr="thread_position_in_grid", buffer=None, init=None)
-            # problem here, this is only couting dims if the node is GlobalThreadIdx()
-            self.thread_idx_dims[node.name] = node.value.dim
-            #self.map_vars[node.name] = param.name
+            self.thread_idx_dims[node.name] = node.value.dim# this is only couting dims if the node is GlobalThreadIdx()
             if not check_param(self.kernel_params, param.attr): # to not add repetitive vars on params
                 self.kernel_params.append(param)
             return None
-
-        # I guess we only need the mapping for pattern matcher nodes created like GlobalThreadIdx(). No need for BlockIdx()!!!
+        
         if node.children():
-            value = [] # = Expression(Binary, Literal, Variable, Array)
-            for child in node.children():
-                child_node = self.visit(child, parent=node)
-                value.append(child_node)
+            #value = [] # = Expression(Binary, Literal, Variable, Array)
+            # added now NOT WORKING YET!!!!
+            #children = node.children()
+            print("len::", len(node.children()))
+            if len(node.children()) == 1:
+                value = self.visit(node.children()[0])
+            else:
+                value = [self.visit(c) for c in node.children()]
+            
+            #for child in node.children():
+            #    child_node = self.visit(child, parent=node)
+            #    value.append(child_node)
 
             if value != None:
+                print("aqui?")
                 return METAL_Declaration(metal_map(memory), type, name, value)
             else:
                 return METAL_Declaration(metal_map(memory), type, name)
@@ -161,12 +179,16 @@ class CUDAVisitor(object):
     # histogram doesn't have assignment statement, that's why `rbuffers/wbuffers` are not being filled
     def visit_Assignment(self, node, parent=None):
         print("ASSIGNMENT: ", node)
+        print(node.name)
+        print(node.value)
         name = self.visit(node.name, parent=node) if isnode(node.name) else METAL_Variable(node.name)
+        print("name:", name)
         if isinstance(node.name, Array):
             self.wbuffers.add(node.name.name) # check if the buffer is to write
 
         if isnode(node.value):
             val = self.visit(node.value, parent=node)
+            print("VAL:", val)
             if isinstance(node.value, Binary):
                 if isinstance(node.value.left, Array):
                     self.rbuffers.add(node.value.left.name)
@@ -202,32 +224,51 @@ class CUDAVisitor(object):
         
         return METAL_ForStatement(init=init, condition=cond, increment=incr, forBody=stmts)
 
+    # still trying to figure this out
     def visit_AtomicOP(self, node, parent=None):
         # important. If func==atomicCAS and value==Literal, we need to create a Declaration node that 
         # assigns that value and pass the address var in `value` field 
-        print("ATOMIC OP:", node)
+        #print("ATOMIC OP:", node)
         func = metal_map(node.func)
         if isinstance(node.addr, Array):
             self.wbuffers.add(node.addr.name) #wbuffer because we're storing in addr the result
-        print("node.addr:", node.addr)
         addr = self.visit(node.addr)
-        print(self.visit)
-        value = self.visit(node.value)
-        mem_ordering = "memory_order_relaxed"
+        mem_ordering="memory_order_relaxed"
+        #value = self.visit(node.value)
+        if node.func == "atomicCAS" and isinstance(node.value, Literal):
+            #print("entrou aqui")
+            decnode = self.visit_Declaration(Declaration(memory="None", type="int", name="atomicValue", value=node.value))
+            #print("decnode:", decnode)
+            value = 1
+            #print("value:", value)
+            des = self.visit(node.desired)
+            atomic = METAL_AtomicOP(func=func, addr=addr, value=value, desired=des, mem_ordering=mem_ordering)
+            return atomic#[decnode, atomic]
         
-        if node.func == "atomicCAS":
-           print("AtomicCAS")
-           print(func, addr, value, node.desired)
-           des = self.visit(node.desired)
-           return METAL_AtomicOP(func=func, addr=addr, value=value, desired=des, mem_ordering=mem_ordering)
+        else:
+            value = self.visit(node.value)
+        
+        #mem_ordering = "memory_order_relaxed"
+        
+        #if node.func == "atomicCAS":
+           #des = self.visit(node.desired)
+           #return METAL_AtomicOP(func=func, addr=addr, value=value, desired=des, mem_ordering=mem_ordering)
 
         return METAL_AtomicOP(func=func, addr=addr, value=value, mem_ordering=mem_ordering)
 
-    #def visit_AtomicOP(self, node, parent=None):
-    #    return genAtomicOP(node.func) 
-
     def visit_SyncThreads(self, node, parent=None):
         return METAL_Barrier()
+
+    def visit_FuncCall(self, node, parent=None):
+        print("FUNCCALL\n", node)
+        name = metal_map(node.name)
+        print("name: ", name)
+        args = []
+        for a in node.args:
+            print("a: ", a)
+            args.append(self.visit(a))
+        print("args: ", args)
+        return METAL_FuncCall(name=name, args=args)
 
     def visit_Binary(self, node, parent=None):
         metal_op = node.op
@@ -251,6 +292,7 @@ class CUDAVisitor(object):
         return METAL_Literal(node.value)
 
     def visit_Variable(self, node, parent=None):
+        #print("VARIABLE:", node)
         return METAL_Variable(node.name)
 
     def visit_Array(self, node, parent=None):
@@ -320,7 +362,7 @@ def check_param(params, attr):
 # helpers (move this to another file)
 def isnode(node):
     """ Check if the node that we're visiting has any node as value for any attribute """
-    return isinstance(node, (Binary, Literal, Variable, Array, CudaVar, ThreadIdx, METAL_Binary, METAL_Literal, METAL_Variable, METAL_Array, METAL_Var))
+    return isinstance(node, (Binary, Literal, Variable, Array, CudaVar, FuncCall, ThreadIdx, METAL_Binary, METAL_Literal, METAL_Variable, METAL_Array, METAL_Var, METAL_FuncCall))
 
 def buf_class(buf):
     # move all comparision here to append to r/w buffer
@@ -330,16 +372,10 @@ def find_atomics(node, atomic_bufs):
     if isinstance(node, AtomicOP):
         if isinstance(node.addr, Array):
             atomic_bufs.add(node.addr.name) 
-    
     if hasattr(node, 'children'):
         for child in node.children():
             if child is not None:
                 find_atomics(child, atomic_bufs)
-
-def genAtomicOP(func):
-    #if func == "atomicAdd":
-    pass
-
 
 # i guess i can remove stuff from here, like: "blockIdx.x * blockDim.x + threadIdx.x": metal_term = "[[thread_position_in_grid]]" 
 def metal_map(cuda_term):
@@ -356,6 +392,7 @@ def metal_map(cuda_term):
         case "atomicAdd":       metal_term = "atomic_fetch_add_explicit"
         case "atomicSub":       metal_term = "atomic_fetch_sub_explicit"
         case "atomicCAS":       metal_term = "atomic_compare_exchange_weak_explicit"
+        case "expf":            metal_term = "exp"
     return metal_term
 
 # ---------------------------------------------------------------------------
@@ -601,17 +638,12 @@ def IRrewrite(subtree):
     return new_tree
 
 
-# OBS:
+# UPDATE:
+# shift the focus on writing everything that exists in cuda to metal and focus on real kernels.:
+# - softmax
+# - attention
+# - flash-attention
 #
-# Update: it was adding multiple GlobalThreadIdx() and mapping to add uint, uint2 or uint3. Removed that, now adds
-# only one uint3. Then I need to map the variables and which dims they use.
-# ex: int a = blockIdx.y * blockDim.y + threadIdx.y
-#   will be: uint3 tid [[thread_position_in_grid]];
-#            int a = tid.y;
-#
-# VERY IMPORTANT! In metal there are no built-in variables like in cuda. So we ALWAYS have to pass them as arguments
-# to the kernel. Even when using a declaration like: `int a = threadIdx.x / BLOCKSZ;` In metal we need to pass as arg:
-# `(uint tx [[thread_index_in_threadgroup]])` and then inside the kernel we do: `int a = tx / BLOCKSZ`
 #
 # VERY IMPORTANT!!!!!: 
 #   1. In metal every kernel parameter must live in a specific address space (device, threadgroup, constant, thread, built-in var)
