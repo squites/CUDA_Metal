@@ -30,7 +30,6 @@ class Parameter(CUDA_Ast):
     mem_type: Optional[str]# = "__global__"
     type: str
     name: str
-    #value: str
 
 @dataclass
 class Body(CUDA_Ast):
@@ -49,7 +48,6 @@ class Declaration(Statement):
     type: str
     name: str
     value: Optional["Expression"] = None
-    #parent: Node
 
     def children(self):
         return [self.value] if self.value is not None else []
@@ -57,14 +55,13 @@ class Declaration(Statement):
 @dataclass
 class Assignment(Statement):
     name: str
+    op: str
     value: "Expression" # instance of Expression class. "Expression" with quotes because Expression class is not yet defined
-    # parent: Node
 
 @dataclass
 class IfStatement(Statement):
     condition: "Expression" # expression
     if_body: List[Statement] # statement*
-    # parent: Node
 
     def children(self):
         return [*self.if_body] #if self.if_body is not None else []
@@ -75,7 +72,6 @@ class ForStatement(Statement):
     condition: "Expression"
     increment: Assignment
     forBody: List[Statement]
-    #parent: Union[Statement]
 
     def children(self):
         return [self.forBody]
@@ -92,6 +88,11 @@ class AtomicOP(Statement):
 class SyncThreads(Statement):
     pass
 
+@dataclass
+class Increment(Statement):
+    name: "Expression" #Union[str, "Array"]
+    op: str
+
 # base class for expressions. Base classes define a common type
 class Expression(CUDA_Ast):
     pass
@@ -101,24 +102,19 @@ class Binary(Expression):
     op: str
     left: Expression 
     right: Expression
-    #parent: Union[Statement, Expression]
 
 @dataclass
 class Literal(Expression): # constant
     value: Union[int, float]
-    #tag: str = None # remove this 
-    # parent: Node
 
 @dataclass
 class Variable(Expression): # var name
     name: str
-    #parent: Node
 
 @dataclass
 class Array(Expression):
     name: Variable
     index: Expression
-    # parent: Node
 
 @dataclass
 class FuncCall(Expression):
@@ -129,7 +125,6 @@ class FuncCall(Expression):
 class CudaVar:
     base: str # blockIdx, threadIdx, ...
     dim: str # x, y, z
-    #tag: str = None # will populate this tag attr later on
 
 class SemanticNode:
     pass
@@ -156,7 +151,7 @@ class BlockDim(SemanticNode):
 
 @dataclass
 class GlobalThreadIdx(SemanticNode):
-    dim: str # char
+    dim: str
 
 # Transformer class
 class CUDATransformer(Transformer):
@@ -220,8 +215,9 @@ class CUDATransformer(Transformer):
 
     def assignment(self, items): # error! for some reason the name is returning as TOKEN instead of the string 
         name = str(items[0]) if isinstance(items[0], Token) else items[0]
-        value = items[1]
-        return Assignment(name=name, value=value)
+        op = str(items[1])
+        value = items[2]
+        return Assignment(name=name, op=op, value=value)
         
     def if_statement(self, items):
         condition = items[0] #items[0]: if (x < M && y < N) {
@@ -236,7 +232,6 @@ class CUDATransformer(Transformer):
         return ForStatement(init=init, condition=cond, increment=incr, forBody=forBody)
 
     def atomic_statement(self, items):
-        print("ITEMS: ", items)
         func = items[0]
         addr = items[1]
         value = items[2]
@@ -252,7 +247,6 @@ class CUDATransformer(Transformer):
         return FuncCall(name=name, args=args)
     
     def expression(self, items):
-        print("Expression:", items) # addr from atomicCAS is coming here as str instead of Variable
         if len(items) == 1: # single term
             return items[0]
         left = items[0]
@@ -291,6 +285,9 @@ class CUDATransformer(Transformer):
 
     def logical_ops(self, token):
         return token[0].value
+
+    #def assign_op(self, token):
+    #    return str(token)
     
     def identifier(self, token):
         return token[0]#.value # when using `.value` returns `Variable()` node, but also `Token()` not right.
@@ -375,6 +372,7 @@ class METAL_Declaration(METAL_Statement):
 @dataclass
 class METAL_Assignment(METAL_Statement):
     name: str
+    op: str
     value: "METAL_Expression" # forward reference
 
 @dataclass
