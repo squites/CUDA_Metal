@@ -269,6 +269,9 @@ class CUDATransformer(Transformer):
                 return Literal(value=item.value)
             elif item.type == "NAME":
                 return Variable(name=item.value)
+        # wrap str in Variable(), because in 'factor' it'll all be expressions. Declarations with str names go directly to identifier
+        elif isinstance(item, str):
+            return Variable(name=item)
         return item#.value
 
     def qualifier(self, token):
@@ -285,11 +288,16 @@ class CUDATransformer(Transformer):
 
     def logical_ops(self, token):
         return token[0].value
-
-    #def assign_op(self, token):
-    #    return str(token)
+    
+    def increment(self, items):
+        var = Variable(name=items[0].value) if isinstance(items[0], Token) else Variable(name=items[0])
+        #var = items[0]
+        op = items[1]
+        return Increment(name=var, op=str(op))
     
     def identifier(self, token):
+        if isinstance(token[0], Token):
+            return token[0].value
         return token[0]#.value # when using `.value` returns `Variable()` node, but also `Token()` not right.
 
     def memory_type(self, token):

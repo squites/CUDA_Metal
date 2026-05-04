@@ -13,6 +13,8 @@ class CodeGen():
             node: METAL ast node to generate that specific string
         """
         method = "gen_" + node.__class__.__name__
+        print("caller: ", method)
+        print("node: ", node)
         gen = getattr(self, method, self.gen_error)
         return gen(node, indent)
 
@@ -84,7 +86,7 @@ class CodeGen():
         return bodystr
 
     def gen_METAL_Declaration(self, node, indent):
-        #print("DECLARATION NODE: ", node)
+        print("DECLARATION NODE: ", node)
         space = " " * indent # indent=4 for body child nodes
         name = self.generator(node.name) if isnode(node.name) else node.name  # error here!!!! for some reason
         attrs = []
@@ -97,10 +99,16 @@ class CodeGen():
 
         # obs: falta o '='
         if node.children() is not None:
-            attrs.append("=")
+            print("AQUI:", node.children())
+            print(node.value)
+            if node.value is not None:
+                attrs.append("=")
             for child in node.children():
+                print("child: ", child)
                 childstr = self.generator(child)
                 attrs.append(childstr)
+        for a in attrs:
+            print("attr: ", a)
         print(space+" ".join(attrs))
 
         return space + " ".join(attrs) 
@@ -109,8 +117,9 @@ class CodeGen():
         #print("ASSIGNMENT NODE:\n", node)
         space = " " * indent
         name = self.generator(node.name) if isnode(node.name) else str(node.name)
+        op = node.op
         val = self.generator(node.value) if isnode(node.value) else str(node.value)
-        assignment_str = f"{name} = {val}"
+        assignment_str = f"{name} {op} {val}"
         return space + assignment_str
 
     def gen_METAL_IfStatement(self, node, indent):
@@ -128,10 +137,12 @@ class CodeGen():
         return ifstr + bodystr + space + "}"
 
     def gen_METAL_ForStatement(self, node, indent):
+        print("GEN FOR: ", node.increment)
         space = " " * indent
         init = self.generator(node.init)
         cond = self.generator(node.condition)
         incr = self.generator(node.increment)
+        print("incr: ", incr)
         header = space + "for (" + init + "; " + cond + "; " + incr + ") {\n"
         bodystr = ""
         for statement in node.forBody:
@@ -158,6 +169,7 @@ class CodeGen():
         return space + f"threadgroup_barrier(mem_flags::{node.mem_flag})" 
 
     def gen_METAL_FuncCall(self, node, indent):
+        print("NODE FUNCCALL: ", node)
         space = " " * indent
         args = ", ".join(self.generator(arg) for arg in node.args)
         return f'{node.name}({args})'

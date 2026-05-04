@@ -10,7 +10,7 @@ cuda_grammar = r"""
     # kernel signature
     kernel: qualifier "void" identifier "(" params ")" "{" body "}"
     params: [parameter ("," parameter)*]
-    parameter: memory_type? "const"? type identifier # added memory_type
+    parameter: memory_type? "const"? type identifier
     body: statement*
     
     statement: declaration ";"
@@ -19,18 +19,19 @@ cuda_grammar = r"""
              | for_statement
              | syncthreads ";"
              | atomic_statement ";"
-             #| while_statement
+             | increment ";"
 
     if_statement: "if (" expression ") {" statement* "}" #("else {" statement* "}")?
-    for_statement: "for (" (declaration | assignment) "; " expression "; " assignment ") {" statement* "}"
-    #atomic_statement: atomics "(&" (identifier|array_index|expression) "," (identifier | factor) ")"
+    for_statement: "for (" (declaration | assignment) "; " expression "; " (assignment| increment)") {" statement* "}"
     atomic_statement: atomics "(" "&"? expression "," expression ("," expression)* ")"
-    # syncthread
+    
+    # barrier
     syncthreads: "__syncthreads()"
 
     # statements
-    declaration: memory_type? type (identifier|array_index) ("=" (expression|atomic_statement))? # var declaration 
-    assignment: (array_index | identifier) "=" expression
+    declaration: memory_type? type (identifier|array_index) ("=" (expression|atomic_statement))?
+    #assignment: (array_index | identifier) "=" expression
+    assignment: (array_index | identifier) ASSIGN_OP expression
     expression: term ((term_ops | logical_ops) term)*
 
     term: factor (factor_ops factor)*
@@ -54,6 +55,7 @@ cuda_grammar = r"""
     memory_type: MEM_TYPE
     atomics: ATOMIC_FUNC
     func_call: FUNC_NAME "(" (expression ("," expression)*)? ")"
+    increment: (identifier | array_index) INCREMENT_OP
     
     # types and ops
     QUALIFIER: "__global__" | "__device__" | "__host__"
@@ -61,12 +63,14 @@ cuda_grammar = r"""
     TERM_OPS: "+" | "-"
     FACTOR_OPS: "*" | "/" | "%"
     LOGICAL_OPS: "==" | ">" | "<" | ">=" | "<=" | "!=" | "&&"
+    ASSIGN_OP: "=" | "+=" | "/=" | "*=" 
+    INCREMENT_OP: "++" | "--"
     cuda_var: BASE_VAR "." CUDA_DIM
     BASE_VAR: ("blockIdx" | "blockDim" | "threadIdx")
     CUDA_DIM: ("x" | "y" | "z")
     MEM_TYPE: "__shared__" | "__constant__"
     ATOMIC_FUNC: "atomicAdd" | "atomicSub" | "atomicCAS"
-    FUNC_NAME: "expf"
+    FUNC_NAME: "expf" | "sqrtf"
 
     # imports 
     %import common.CNAME -> NAME

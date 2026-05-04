@@ -129,11 +129,11 @@ class CUDAVisitor(object):
         type = node.type
         name = self.visit(node.name) if isnode(node.name) else node.name
         print("mem:", memory)
-        print("tye:", type)
+        print("type:", type)
         print("name:", name)
         # add a function to remove this r/w buffers appends
-        if isinstance(node.name, Array):
-            self.wbuffers.append(node.name.name) # change this to call the function `buf_class`
+        if isinstance(node.name, (Array, METAL_Array)):
+            self.wbuffers.add(node.name.name) # change this to call the function `buf_class`
 
         if isnode(node.value):
             val = self.visit(node.value, parent=node)
@@ -180,6 +180,7 @@ class CUDAVisitor(object):
     def visit_Assignment(self, node, parent=None):
         print("ASSIGNMENT: ", node)
         print(node.name)
+        print(node.op)
         print(node.value)
         name = self.visit(node.name, parent=node) if isnode(node.name) else METAL_Variable(node.name)
         print("name:", name)
@@ -201,7 +202,7 @@ class CUDAVisitor(object):
         else:
             val = METAL_Variable(node.value)
         
-        return METAL_Assignment(name, val)
+        return METAL_Assignment(name, node.op, val)
 
     def visit_IfStatement(self, node, parent=None):
         cond = self.visit(node.condition, parent=node)
@@ -266,7 +267,8 @@ class CUDAVisitor(object):
         args = []
         for a in node.args:
             print("a: ", a)
-            args.append(self.visit(a))
+            print(a.__class__.__name__)
+            args.append(self.visit(a)) if isnode(a) else args.append(a)
         print("args: ", args)
         return METAL_FuncCall(name=name, args=args)
 
@@ -393,6 +395,7 @@ def metal_map(cuda_term):
         case "atomicSub":       metal_term = "atomic_fetch_sub_explicit"
         case "atomicCAS":       metal_term = "atomic_compare_exchange_weak_explicit"
         case "expf":            metal_term = "exp"
+        case "sqrtf":           metal_term = "sqrt"
     return metal_term
 
 # ---------------------------------------------------------------------------
@@ -640,10 +643,13 @@ def IRrewrite(subtree):
 
 # UPDATE:
 # shift the focus on writing everything that exists in cuda to metal and focus on real kernels.:
-# - softmax
 # - attention
 # - flash-attention
 #
+# OBS (27/4):
+# - On softmax_smem.cu kernel, the line `float local_max = input[0];`, the node of input is METAL_Array(name='input', ...)
+# but I think it should be METAL_Array(name=METAL_Variable(name='input')...), no?
+# - fix warnings (deprecated things on metal framework)
 #
 # VERY IMPORTANT!!!!!: 
 #   1. In metal every kernel parameter must live in a specific address space (device, threadgroup, constant, thread, built-in var)
