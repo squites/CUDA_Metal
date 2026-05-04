@@ -26,9 +26,9 @@ The transpiler currently performs canonicalization on the terms of the expressio
 ## TODO
 - [x] Vector Addition
 - [x] Naive Matmul
-- [ ] Histogram
+- [x] Histogram
 - [ ] GEMM with Shared Memory Cache-Blocking
 - [ ] GEMM 2D Blocktiling
-- [ ] Softmax (Naive, Shared Memory)
+- [x] Softmax (Naive, Shared Memory)
 - [ ] Attention
 - [ ] Flash Attention
