@@ -75,7 +75,7 @@ def main():
     gen = CodeGen(cuda_visitor.thread_idx_dims) # pass here the mappings: CodeGen(cuda_visitor.thread_idx_dims)
     metal_kernel = gen.generator(metal_ast)
     print(f"\nCUDA kernel:\n", cudakernel)
-    print(f"\nMETAL Shader generated:\n{metal_kernel}")
+    print(f"\nMETAL kernel:\n{metal_kernel}")
 
     # writing in a file
     filename = f"./examples/{kernel_name}.metal" #"./examples/addOne.metal"
@@ -189,3 +189,7 @@ if __name__ == "__main__":
 # 1) for each constraint, get src and target buffers.
 # 2) compute size of target
 # 3) validate: assert that value < buckets
+#
+# BUGS:
+# - grammar is not recognizing the number -1e30. Its treatign as positive number 1e30
+# - figure it out how to pass the args when using attention kernels. The matrices are not square anymore

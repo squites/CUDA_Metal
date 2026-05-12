@@ -31,7 +31,7 @@ cuda_grammar = r"""
     # statements
     declaration: memory_type? type (identifier|array_index) ("=" (expression|atomic_statement))?
     #assignment: (array_index | identifier) "=" expression
-    assignment: (array_index | identifier) ASSIGN_OP expression
+    assignment: (array_index | identifier) ASSIGN_OP expression # add "increment"
     expression: term ((term_ops | logical_ops) term)*
 
     term: factor (factor_ops factor)*

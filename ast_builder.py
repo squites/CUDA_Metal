@@ -403,6 +403,11 @@ class METAL_ForStatement(METAL_Statement):
         return [*self.forBody]
 
 @dataclass
+class METAL_Increment(METAL_Statement):
+    name: "METAL_Expression"
+    op: str
+
+@dataclass
 class METAL_AtomicOP(METAL_Statement):
     # need to change the attributes to support atomicCAS
     func: str

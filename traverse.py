@@ -89,7 +89,6 @@ class CUDAVisitor(object):
         # on Parameter node. Generate the Metal node with the right type. Maybe we can add a pass, where walks the
         # ast and check all atomics, add that node to `atomic_bufs`, and then execute the visit pass normally to
         # generate Metal nodes.
-        print("PARAMETER: ", node)
         mem_type = metal_map(node.mem_type)
         node_type = node.type
         if node.type == "int*" or node.type == "float*": #or node.type == "int" or node.type == "float":
@@ -128,9 +127,6 @@ class CUDAVisitor(object):
         memory = node.memory if node.memory else None
         type = node.type
         name = self.visit(node.name) if isnode(node.name) else node.name
-        print("mem:", memory)
-        print("type:", type)
-        print("name:", name)
         # add a function to remove this r/w buffers appends
         if isinstance(node.name, (Array, METAL_Array)):
             self.wbuffers.add(node.name.name) # change this to call the function `buf_class`
@@ -158,7 +154,6 @@ class CUDAVisitor(object):
             #value = [] # = Expression(Binary, Literal, Variable, Array)
             # added now NOT WORKING YET!!!!
             #children = node.children()
-            print("len::", len(node.children()))
             if len(node.children()) == 1:
                 value = self.visit(node.children()[0])
             else:
@@ -169,7 +164,6 @@ class CUDAVisitor(object):
             #    value.append(child_node)
 
             if value != None:
-                print("aqui?")
                 return METAL_Declaration(metal_map(memory), type, name, value)
             else:
                 return METAL_Declaration(metal_map(memory), type, name)
@@ -183,7 +177,6 @@ class CUDAVisitor(object):
         print(node.op)
         print(node.value)
         name = self.visit(node.name, parent=node) if isnode(node.name) else METAL_Variable(node.name)
-        print("name:", name)
         if isinstance(node.name, Array):
             self.wbuffers.add(node.name.name) # check if the buffer is to write
 
@@ -271,6 +264,12 @@ class CUDAVisitor(object):
             args.append(self.visit(a)) if isnode(a) else args.append(a)
         print("args: ", args)
         return METAL_FuncCall(name=name, args=args)
+
+    def visit_Increment(self, node, parent=None):
+        print("INCREMENT: ", node)
+        name = self.visit(node.name)
+        op = node.op
+        return METAL_Increment(name, op) # node.name is already a Variable, shouldn't change only when visiting?
 
     def visit_Binary(self, node, parent=None):
         metal_op = node.op

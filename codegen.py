@@ -13,8 +13,6 @@ class CodeGen():
             node: METAL ast node to generate that specific string
         """
         method = "gen_" + node.__class__.__name__
-        print("caller: ", method)
-        print("node: ", node)
         gen = getattr(self, method, self.gen_error)
         return gen(node, indent)
 
@@ -137,12 +135,10 @@ class CodeGen():
         return ifstr + bodystr + space + "}"
 
     def gen_METAL_ForStatement(self, node, indent):
-        print("GEN FOR: ", node.increment)
         space = " " * indent
         init = self.generator(node.init)
         cond = self.generator(node.condition)
         incr = self.generator(node.increment)
-        print("incr: ", incr)
         header = space + "for (" + init + "; " + cond + "; " + incr + ") {\n"
         bodystr = ""
         for statement in node.forBody:
@@ -169,10 +165,13 @@ class CodeGen():
         return space + f"threadgroup_barrier(mem_flags::{node.mem_flag})" 
 
     def gen_METAL_FuncCall(self, node, indent):
-        print("NODE FUNCCALL: ", node)
         space = " " * indent
         args = ", ".join(self.generator(arg) for arg in node.args)
         return f'{node.name}({args})'
+
+    def gen_METAL_Increment(self, node, indent=0):
+        name = self.generator(node.name)
+        return f'{name}{node.op}'
 
     # ex: METAL_Binary(op='+',left=METAL_Variable(name='a'), right='b')
     def gen_METAL_Binary(self, node, indent=0): 
