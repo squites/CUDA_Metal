@@ -1,4 +1,4 @@
-__global__ void attention_simple(
+__global__ void naive_attention(
     float* Q,      
     float* K,      
     float* V,      
